@@ -1,0 +1,84 @@
+{
+  "timestamp": "2025-07-03 22:24:21",
+  "environment": "simulation",
+  "summary": {
+    "avg_speedup": 2.2725,
+    "max_speedup": 3.0,
+    "total_tops": 43.4,
+    "success_rate": 1.0
+  },
+  "results": [
+    {
+      "module_name": "Gated MLP",
+      "yirage_time_ms": 4.272,
+      "yica_time_ms": 2.062,
+      "speedup": 2.07,
+      "yica_tops": 0.13,
+      "memory_bandwidth_gbps": 1090.2,
+      "cim_arrays": 4,
+      "spm_size_kb": 512,
+      "matrix_size": [
+        8,
+        4096,
+        4096
+      ],
+      "operations": "Gate + Up + SiLU + Elementwise",
+      "efficiency_percent": 69.0,
+      "status": "success"
+    },
+    {
+      "module_name": "Group Query Attention",
+      "yirage_time_ms": 2.526,
+      "yica_time_ms": 0.843,
+      "speedup": 3.0,
+      "yica_tops": 40.76,
+      "memory_bandwidth_gbps": 919.0,
+      "cim_arrays": 8,
+      "spm_size_kb": 1024,
+      "matrix_size": [
+        2,
+        32,
+        2048,
+        64
+      ],
+      "operations": "Q@K + Softmax + Attn@V",
+      "efficiency_percent": 95,
+      "status": "success"
+    },
+    {
+      "module_name": "RMS Normalization",
+      "yirage_time_ms": 2.686,
+      "yica_time_ms": 1.614,
+      "speedup": 1.66,
+      "yica_tops": 0.1,
+      "memory_bandwidth_gbps": 948.0,
+      "cim_arrays": 2,
+      "spm_size_kb": 256,
+      "matrix_size": [
+        4096,
+        4096
+      ],
+      "operations": "Square + Mean + Sqrt + Scale",
+      "efficiency_percent": 55.5,
+      "status": "success"
+    },
+    {
+      "module_name": "LoRA Adaptation",
+      "yirage_time_ms": 2.103,
+      "yica_time_ms": 0.891,
+      "speedup": 2.36,
+      "yica_tops": 2.41,
+      "memory_bandwidth_gbps": 1199.1,
+      "cim_arrays": 6,
+      "spm_size_kb": 512,
+      "matrix_size": [
+        4096,
+        4096,
+        64
+      ],
+      "operations": "X@W + X@A@B + Scale + Add",
+      "efficiency_percent": 78.7,
+      "status": "success"
+    }
+  ]
+}

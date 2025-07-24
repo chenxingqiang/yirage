@@ -1,0 +1,54 @@
+{
+  "benchmark_config": {
+    "description": "YICA-Yirage 基准测试配置文件",
+    "version": "1.0.0",
+    "warmup_iterations": 10,
+    "benchmark_iterations": 100,
+    "batch_sizes": [1, 4, 8, 16, 32],
+    "sequence_lengths": [128, 256, 512, 1024, 2048],
+    "hidden_sizes": [512, 768, 1024, 1536, 2048, 4096],
+    "enable_memory_profiling": true,
+    "enable_energy_profiling": false,
+    "output_dir": "./benchmark_results",
+    "device": "auto",
+    "precision": "fp32"
+  },
+  
+  "quick_config": {
+    "description": "快速测试配置，用于开发和调试",
+    "warmup_iterations": 3,
+    "benchmark_iterations": 10,
+    "batch_sizes": [1, 8, 16],
+    "sequence_lengths": [128, 512],
+    "hidden_sizes": [768, 1024],
+    "enable_memory_profiling": false,
+    "enable_energy_profiling": false,
+    "output_dir": "./quick_benchmark_results",
+    "device": "auto",
+    "precision": "fp32"
+  },
+  
+  "yica_optimization_config": {
+    "description": "YICA 特定优化基准测试配置",
+    "warmup_iterations": 15,
+    "benchmark_iterations": 50,
+    "batch_sizes": [1, 4, 8, 16, 32],
+    "sequence_lengths": [128, 512, 1024, 2048],
+    "hidden_sizes": [768, 1024, 2048, 4096],
+    "enable_memory_profiling": true,
+    "enable_energy_profiling": true,
+    "output_dir": "./yica_optimization_results",
+    "device": "yica",
+    "precision": "fp32",
+    "yica_specific": {
+      "enable_cim_optimization": true,
+      "enable_spm_optimization": true,
+      "enable_operator_fusion": true,
+      "enable_memory_hierarchy_optimization": true,
+      "cim_array_count": 16,
+      "spm_size_mb": 64,
+      "enable_yccl_communication": true,
+      "enable_auto_tuning": true
+    }
+  }
+} 
