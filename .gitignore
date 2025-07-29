@@ -55,3 +55,4 @@ benchmark/*generated*
 
 # Rust
 src/search/abstract_expr/abstract_subexpr/*.lock
+llvm18/

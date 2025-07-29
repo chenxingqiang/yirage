@@ -1213,3 +1213,332 @@ def cy_from_json(str filename):
     ptr = cython_from_json(cfilename)
     graph = ctypes.cast(<unsigned long long>ptr, ctypes.c_void_p)
     return CyKNGraph(graph)
+
+# ===== YICA专用Python绑定 =====
+
+# YICA配置类
+cdef class CyYICAConfig:
+    cdef YICAConfig c_config
+    
+    def __init__(self, 
+                 cim_array_rows=256, 
+                 cim_array_cols=256,
+                 spm_size_per_die=2*1024*1024,  # 2MB
+                 dram_bandwidth=1024,  # GB/s
+                 num_cim_dies=16,
+                 cim_frequency=1000.0,  # MHz
+                 cim_energy_per_op=0.1,  # pJ
+                 spm_energy_per_access=1.0,  # pJ
+                 dram_energy_per_access=100.0,  # pJ
+                 communication_latency=10.0):  # ns
+        self.c_config.cim_array_rows = cim_array_rows
+        self.c_config.cim_array_cols = cim_array_cols
+        self.c_config.spm_size_per_die = spm_size_per_die
+        self.c_config.dram_bandwidth = dram_bandwidth
+        self.c_config.num_cim_dies = num_cim_dies
+        self.c_config.cim_frequency = cim_frequency
+        self.c_config.cim_energy_per_op = cim_energy_per_op
+        self.c_config.spm_energy_per_access = spm_energy_per_access
+        self.c_config.dram_energy_per_access = dram_energy_per_access
+        self.c_config.communication_latency = communication_latency
+    
+    @property
+    def cim_array_rows(self):
+        return self.c_config.cim_array_rows
+    
+    @cim_array_rows.setter
+    def cim_array_rows(self, value):
+        self.c_config.cim_array_rows = value
+    
+    @property
+    def cim_array_cols(self):
+        return self.c_config.cim_array_cols
+    
+    @cim_array_cols.setter
+    def cim_array_cols(self, value):
+        self.c_config.cim_array_cols = value
+    
+    @property
+    def spm_size_per_die(self):
+        return self.c_config.spm_size_per_die
+    
+    @spm_size_per_die.setter
+    def spm_size_per_die(self, value):
+        self.c_config.spm_size_per_die = value
+
+# YICA分析结果类
+cdef class CyAnalysisResult:
+    cdef AnalysisResult c_result
+    
+    def __init__(self):
+        pass
+    
+    @property
+    def cim_friendliness_score(self):
+        return self.c_result.cim_friendliness_score
+    
+    @property
+    def memory_locality_score(self):
+        return self.c_result.memory_locality_score
+    
+    @property
+    def parallelization_potential(self):
+        return self.c_result.parallelization_potential
+    
+    @property
+    def bottlenecks(self):
+        return [bottleneck.decode('UTF-8') for bottleneck in self.c_result.bottlenecks]
+    
+    @property
+    def estimated_speedup(self):
+        return self.c_result.estimated_speedup
+    
+    @property
+    def estimated_energy_reduction(self):
+        return self.c_result.estimated_energy_reduction
+    
+    @property
+    def cim_friendly_ops(self):
+        ops = []
+        for i in range(self.c_result.cim_friendly_ops.size()):
+            ptr = ctypes.cast(<unsigned long long>self.c_result.cim_friendly_ops[i], ctypes.c_void_p)
+            ops.append(DTensor(ptr))
+        return ops
+    
+    @property
+    def parallel_opportunities(self):
+        opportunities = []
+        for i in range(self.c_result.parallel_opportunities.size()):
+            opp = self.c_result.parallel_opportunities[i]
+            tensors = []
+            for j in range(opp.involved_tensors.size()):
+                ptr = ctypes.cast(<unsigned long long>opp.involved_tensors[j], ctypes.c_void_p)
+                tensors.append(DTensor(ptr))
+            
+            opportunities.append({
+                'type': opp.type,
+                'involved_tensors': tensors,
+                'efficiency_score': opp.efficiency_score,
+                'recommended_parallelism': opp.recommended_parallelism,
+                'description': opp.description.decode('UTF-8')
+            })
+        return opportunities
+
+# YICA架构分析器
+cdef class CyYICAAnalyzer:
+    cdef YICAArchitectureAnalyzer* c_analyzer
+    
+    def __init__(self, CyYICAConfig config):
+        self.c_analyzer = new YICAArchitectureAnalyzer(config.c_config)
+    
+    def __dealloc__(self):
+        if self.c_analyzer != NULL:
+            del self.c_analyzer
+    
+    def analyze_computation_graph(self, CyKNGraph graph):
+        """分析计算图的YICA适配性"""
+        cdef AnalysisResult c_result = self.c_analyzer.analyze_computation_pattern(graph.p_kgraph[0])
+        
+        result = CyAnalysisResult()
+        result.c_result = c_result
+        return result
+    
+    def identify_cim_operations(self, CyKNGraph graph):
+        """识别CIM友好的操作"""
+        cdef vector[CppDTensor*] c_ops = self.c_analyzer.identify_cim_operations(graph.p_kgraph[0])
+        
+        ops = []
+        for i in range(c_ops.size()):
+            ptr = ctypes.cast(<unsigned long long>c_ops[i], ctypes.c_void_p)
+            ops.append(DTensor(ptr))
+        return ops
+    
+    def analyze_memory_access_pattern(self, CyKNGraph graph):
+        """分析内存访问模式"""
+        return self.c_analyzer.analyze_memory_access_pattern(graph.p_kgraph[0])
+    
+    def find_parallel_patterns(self, CyKNGraph graph):
+        """发现并行化机会"""
+        cdef vector[ParallelizationOpportunity] c_opportunities = self.c_analyzer.find_parallel_patterns(graph.p_kgraph[0])
+        
+        opportunities = []
+        for i in range(c_opportunities.size()):
+            opp = c_opportunities[i]
+            tensors = []
+            for j in range(opp.involved_tensors.size()):
+                ptr = ctypes.cast(<unsigned long long>opp.involved_tensors[j], ctypes.c_void_p)
+                tensors.append(DTensor(ptr))
+            
+            opportunities.append({
+                'type': opp.type,
+                'involved_tensors': tensors,
+                'efficiency_score': opp.efficiency_score,
+                'recommended_parallelism': opp.recommended_parallelism,
+                'description': opp.description.decode('UTF-8')
+            })
+        return opportunities
+    
+    def update_config(self, CyYICAConfig config):
+        """更新YICA配置"""
+        self.c_analyzer.update_config(config.c_config)
+    
+    def get_config(self):
+        """获取当前配置"""
+        cdef YICAConfig c_config = self.c_analyzer.get_config()
+        config = CyYICAConfig()
+        config.c_config = c_config
+        return config
+
+# YICA内存管理器配置
+cdef class CyYICAMemoryConfig:
+    cdef YICAMemoryConfig c_config
+    
+    def __init__(self,
+                 register_file_size=32*1024,  # 32KB
+                 num_register_banks=16,
+                 spm_size_per_die=128*1024*1024,  # 128MB
+                 num_spm_banks=8,
+                 spm_cache_line_size=64,  # 64B
+                 dram_total_size=8*1024*1024*1024,  # 8GB
+                 dram_bandwidth_gbps=512,  # 512 GB/s
+                 allocation_strategy=6,  # YICA_OPTIMIZED
+                 enable_memory_coalescing=True,
+                 enable_prefetching=True,
+                 fragmentation_threshold=0.2,
+                 enable_spm_caching=True,
+                 spm_cache_associativity=8,
+                 spm_replacement_policy="LRU"):
+        self.c_config.register_file_size = register_file_size
+        self.c_config.num_register_banks = num_register_banks
+        self.c_config.spm_size_per_die = spm_size_per_die
+        self.c_config.num_spm_banks = num_spm_banks
+        self.c_config.spm_cache_line_size = spm_cache_line_size
+        self.c_config.dram_total_size = dram_total_size
+        self.c_config.dram_bandwidth_gbps = dram_bandwidth_gbps
+        self.c_config.allocation_strategy = <AllocationStrategy>allocation_strategy
+        self.c_config.enable_memory_coalescing = enable_memory_coalescing
+        self.c_config.enable_prefetching = enable_prefetching
+        self.c_config.fragmentation_threshold = fragmentation_threshold
+        self.c_config.enable_spm_caching = enable_spm_caching
+        self.c_config.spm_cache_associativity = spm_cache_associativity
+        self.c_config.spm_replacement_policy = spm_replacement_policy.encode('UTF-8')
+
+# YICA内存管理器
+cdef class CyYICAMemoryManager:
+    cdef YICADeviceMemoryManager* c_manager
+    
+    def __init__(self, int device_id, int num_devices, CyYICAMemoryConfig config):
+        self.c_manager = new YICADeviceMemoryManager(device_id, num_devices, config.c_config)
+    
+    def __dealloc__(self):
+        if self.c_manager != NULL:
+            del self.c_manager
+    
+    def allocate_memory(self, size_t size, int memory_level, size_t alignment=64):
+        """分配内存"""
+        cdef void* ptr = self.c_manager.allocate_memory(size, <MemoryLevel>memory_level, alignment)
+        return <unsigned long long>ptr
+    
+    def deallocate_memory(self, unsigned long long ptr, int memory_level):
+        """释放内存"""
+        return self.c_manager.deallocate_memory(<void*>ptr, <MemoryLevel>memory_level)
+    
+    def allocate_yica_memory(self, size_t size, int preferred_level):
+        """YICA专用内存分配"""
+        cdef YICAAllocationResult result = self.c_manager.allocate_yica_memory(size, <MemoryLevel>preferred_level)
+        return {
+            'ptr': <unsigned long long>result.ptr,
+            'allocated_level': result.allocated_level,
+            'actual_size': result.actual_size,
+            'alignment_offset': result.alignment_offset,
+            'allocation_successful': result.allocation_successful,
+            'allocation_efficiency': result.allocation_efficiency
+        }
+    
+    def promote_to_spm(self, unsigned long long dram_ptr, size_t size):
+        """将数据从DRAM提升到SPM"""
+        return self.c_manager.promote_to_spm(<void*>dram_ptr, size)
+    
+    def demote_to_dram(self, unsigned long long spm_ptr, size_t size):
+        """将数据从SPM降级到DRAM"""
+        return self.c_manager.demote_to_dram(<void*>spm_ptr, size)
+    
+    def prefetch_to_spm(self, unsigned long long dram_ptr, size_t size):
+        """预取数据到SPM"""
+        return self.c_manager.prefetch_to_spm(<void*>dram_ptr, size)
+    
+    def cache_in_spm(self, unsigned long long dram_ptr, size_t size, int priority=0):
+        """在SPM中缓存数据"""
+        return self.c_manager.cache_in_spm(<void*>dram_ptr, size, priority)
+    
+    def evict_from_spm(self, unsigned long long spm_ptr):
+        """从SPM中驱逐数据"""
+        return self.c_manager.evict_from_spm(<void*>spm_ptr)
+    
+    def measure_memory_bandwidth(self, int memory_level):
+        """测量内存带宽"""
+        return self.c_manager.measure_memory_bandwidth(<MemoryLevel>memory_level)
+    
+    def get_memory_statistics(self):
+        """获取内存统计信息"""
+        cdef MemoryStatistics stats = self.c_manager.get_memory_statistics()
+        return {
+            'total_allocated_bytes': [stats.total_allocated_bytes[i] for i in range(3)],
+            'peak_allocated_bytes': [stats.peak_allocated_bytes[i] for i in range(3)],
+            'num_allocations': [stats.num_allocations[i] for i in range(3)],
+            'num_deallocations': [stats.num_deallocations[i] for i in range(3)],
+            'average_allocation_time': [stats.average_allocation_time[i] for i in range(3)],
+            'average_access_latency': [stats.average_access_latency[i] for i in range(3)],
+            'memory_utilization': [stats.memory_utilization[i] for i in range(3)],
+            'fragmentation_ratio': [stats.fragmentation_ratio[i] for i in range(3)],
+            'spm_cache_hits': stats.spm_cache_hits,
+            'spm_cache_misses': stats.spm_cache_misses,
+            'spm_cache_hit_rate': stats.spm_cache_hit_rate,
+            'spm_evictions': stats.spm_evictions,
+            'measured_bandwidth': [stats.measured_bandwidth[i] for i in range(3)],
+            'bandwidth_utilization': [stats.bandwidth_utilization[i] for i in range(3)],
+            'total_memory_transactions': stats.total_memory_transactions
+        }
+    
+    def reset_statistics(self):
+        """重置统计信息"""
+        self.c_manager.reset_statistics()
+    
+    def trigger_garbage_collection(self):
+        """触发垃圾回收"""
+        self.c_manager.trigger_garbage_collection()
+    
+    def compact_memory(self, int memory_level):
+        """压缩内存"""
+        self.c_manager.compact_memory(<MemoryLevel>memory_level)
+    
+    @staticmethod
+    def get_instance():
+        """获取单例实例"""
+        cdef YICADeviceMemoryManager* instance = YICADeviceMemoryManager.get_instance()
+        # 创建Python包装器（需要小心处理生命周期）
+        manager = CyYICAMemoryManager.__new__(CyYICAMemoryManager)
+        manager.c_manager = instance
+        return manager
+    
+    @staticmethod
+    def set_device_id(int device_id):
+        """设置设备ID"""
+        YICADeviceMemoryManager.set_device_id(device_id)
+
+# 便利函数
+def create_yica_analyzer(config_dict=None):
+    """创建YICA分析器的便利函数"""
+    if config_dict is None:
+        config_dict = {}
+    
+    config = CyYICAConfig(**config_dict)
+    return CyYICAAnalyzer(config)
+
+def create_yica_memory_manager(device_id=0, num_devices=1, config_dict=None):
+    """创建YICA内存管理器的便利函数"""
+    if config_dict is None:
+        config_dict = {}
+    
+    config = CyYICAMemoryConfig(**config_dict)
+    return CyYICAMemoryManager(device_id, num_devices, config)

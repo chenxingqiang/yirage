@@ -367,5 +367,124 @@ cdef extern from "mirage/triton_transpiler/transpile.h" namespace "mirage::trito
     cdef TritonTranspileResult transpile(const CppKNGraph *graph,
                                          const TritonTranspilerConfig config)
 
-cdef extern from "mirage/kernel/device_memory_manager.h" namespace "mirage::kernel":
+cdef extern from "yirage/kernel/device_memory_manager.h" namespace "yirage::kernel":
     cdef int cython_set_gpu_device_id(int gpu_id)
+
+# YICA专用绑定声明
+cdef extern from "yirage/search/yica/yica_types.h" namespace "yirage::search::yica":
+    ctypedef struct YICAConfig:
+        size_t cim_array_rows
+        size_t cim_array_cols
+        size_t spm_size_per_die
+        size_t dram_bandwidth
+        size_t num_cim_dies
+        float cim_frequency
+        float cim_energy_per_op
+        float spm_energy_per_access
+        float dram_energy_per_access
+        float communication_latency
+    
+    ctypedef struct ParallelizationOpportunity:
+        int type  # 简化为int类型
+        vector[CppDTensor*] involved_tensors
+        float efficiency_score
+        size_t recommended_parallelism
+        string description
+    
+    ctypedef struct AnalysisResult:
+        float cim_friendliness_score
+        float memory_locality_score
+        float parallelization_potential
+        vector[string] bottlenecks
+        vector[ParallelizationOpportunity] parallel_opportunities
+        vector[CppDTensor*] cim_friendly_ops
+        float estimated_speedup
+        float estimated_energy_reduction
+
+cdef extern from "yirage/search/yica/yica_analyzer.h" namespace "yirage::search::yica":
+    cdef cppclass YICAArchitectureAnalyzer:
+        YICAArchitectureAnalyzer(const YICAConfig& config)
+        AnalysisResult analyze_computation_pattern(const CppKNGraph& graph)
+        vector[CppDTensor*] identify_cim_operations(const CppKNGraph& graph)
+        float analyze_memory_access_pattern(const CppKNGraph& graph)
+        vector[ParallelizationOpportunity] find_parallel_patterns(const CppKNGraph& graph)
+        void update_config(const YICAConfig& config)
+        const YICAConfig& get_config()
+
+cdef extern from "yirage/kernel/yica_device_memory_manager.h" namespace "yirage::kernel":
+    cdef enum MemoryLevel:
+        REGISTER_FILE = 0
+        SPM = 1
+        DRAM = 2
+    
+    cdef enum AllocationStrategy:
+        FIRST_FIT = 0
+        BEST_FIT = 1
+        WORST_FIT = 2
+        BUDDY_SYSTEM = 3
+        SLAB_ALLOCATOR = 4
+        POOL_ALLOCATOR = 5
+        YICA_OPTIMIZED = 6
+    
+    ctypedef struct YICAMemoryConfig:
+        size_t register_file_size
+        int num_register_banks
+        size_t spm_size_per_die
+        int num_spm_banks
+        size_t spm_cache_line_size
+        size_t dram_total_size
+        size_t dram_bandwidth_gbps
+        AllocationStrategy allocation_strategy
+        bool enable_memory_coalescing
+        bool enable_prefetching
+        float fragmentation_threshold
+        bool enable_spm_caching
+        size_t spm_cache_associativity
+        string spm_replacement_policy
+    
+    ctypedef struct YICAAllocationResult:
+        void* ptr
+        MemoryLevel allocated_level
+        size_t actual_size
+        size_t alignment_offset
+        bool allocation_successful
+        float allocation_efficiency
+    
+    ctypedef struct MemoryStatistics:
+        size_t total_allocated_bytes[3]
+        size_t peak_allocated_bytes[3]
+        size_t num_allocations[3]
+        size_t num_deallocations[3]
+        double average_allocation_time[3]
+        double average_access_latency[3]
+        float memory_utilization[3]
+        float fragmentation_ratio[3]
+        size_t spm_cache_hits
+        size_t spm_cache_misses
+        float spm_cache_hit_rate
+        size_t spm_evictions
+        float measured_bandwidth[3]
+        float bandwidth_utilization[3]
+        size_t total_memory_transactions
+    
+    cdef cppclass YICADeviceMemoryManager:
+        YICADeviceMemoryManager(int device_id, int num_devices, const YICAMemoryConfig &config)
+        void* allocate_memory(size_t size, MemoryLevel level, size_t alignment)
+        bool deallocate_memory(void* ptr, MemoryLevel level)
+        YICAAllocationResult allocate_yica_memory(size_t size, MemoryLevel preferred_level)
+        bool promote_to_spm(void* dram_ptr, size_t size)
+        bool demote_to_dram(void* spm_ptr, size_t size)
+        bool prefetch_to_spm(void* dram_ptr, size_t size)
+        bool cache_in_spm(void* dram_ptr, size_t size, int priority)
+        bool evict_from_spm(void* spm_ptr)
+        float measure_memory_bandwidth(MemoryLevel level)
+        MemoryStatistics get_memory_statistics()
+        void reset_statistics()
+        void trigger_garbage_collection()
+        void compact_memory(MemoryLevel level)
+        
+        @staticmethod
+        YICADeviceMemoryManager* get_instance()
+        
+        @staticmethod
+        void set_device_id(int device_id)

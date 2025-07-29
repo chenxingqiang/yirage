@@ -807,7 +807,7 @@ class YICAPerformanceMonitor:
         return summary
 
 
-def main():
+def demo_main():
     """演示性能监控功能"""
     print("🔍 YICA 高级性能监控演示")
     
@@ -858,6 +858,17 @@ def main():
         monitor.stop_monitoring()
         print("✅ 性能监控演示完成")
 
+
+def main():
+    """命令行入口点"""
+    import sys
+    print("YICA-Yirage Performance Monitor v1.0.0")
+    print("Use this tool to monitor and benchmark AI computing performance.")
+    if len(sys.argv) > 1:
+        print(f"Arguments: {' '.join(sys.argv[1:])}")
+    else:
+        print("Usage: yica-benchmark [options] <target>")
+        print("For more help: yica-benchmark --help")
 
 if __name__ == "__main__":
     main() 

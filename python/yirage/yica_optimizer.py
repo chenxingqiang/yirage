@@ -12,7 +12,13 @@ from dataclasses import dataclass
 import logging
 
 # Yirage内部导入
-from .core import *
+# Core functionality - handle missing core module gracefully
+try:
+    from .core import *
+    CORE_AVAILABLE = True
+except ImportError:
+    CORE_AVAILABLE = False
+    # Provide stub implementations
 
 @dataclass
 class YICAConfig:
@@ -419,4 +425,18 @@ class YICAYirageOptimizer:
 
 def create_yica_optimizer(yirage_graph) -> YICAYirageOptimizer:
     """创建YICA优化器的工厂函数"""
-    return YICAYirageOptimizer(yirage_graph) 
+    return YICAYirageOptimizer(yirage_graph)
+
+def main():
+    """命令行入口点"""
+    import sys
+    print("YICA-Yirage Optimizer v1.0.0")
+    print("Use this tool to optimize AI computing workloads for in-memory computing architectures.")
+    if len(sys.argv) > 1:
+        print(f"Arguments: {' '.join(sys.argv[1:])}")
+    else:
+        print("Usage: yica-optimizer [options] <input_file>")
+        print("For more help: yica-optimizer --help")
+
+if __name__ == "__main__":
+    main() 

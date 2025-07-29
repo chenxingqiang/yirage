@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
-project(YIRAGE LANGUAGES C CXX CUDA)
+project(YIRAGE LANGUAGES C CXX)
 
 message(STATUS "CMake Version: ${CMAKE_VERSION}")
 
@@ -22,11 +22,11 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_LIST_DIR}/cmake)
 include(cmake/yica.cmake)
 
 # Configure YICA backend if enabled
-configure_yica()
+# configure_yica()  # Function not defined, YICA support controlled by ENABLE_YICA option
 
 #add_subdirectory(deps/cutlass)
 
-set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86;89;90")
+# set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86;89;90")
 #set(CUTLASS_NVCC_ARCHS "80;86")
 
 file(GLOB_RECURSE YIRAGE_SRCS
@@ -40,12 +40,12 @@ file(GLOB_RECURSE YIRAGE_CUDA_SRCS
 include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag("-std=c++17" SUPPORT_CXX17)
 
-#set CUDA version
-include(deps/cutlass/CUDA.cmake)
-string(REPLACE "." ";" CUDA_VERSION_PARTS ${CUDA_VERSION})
-list(GET CUDA_VERSION_PARTS 0 CUDA_VERSION_MAJOR)
-list(GET CUDA_VERSION_PARTS 1 CUDA_VERSION_MINOR)
-list(APPEND CMAKE_CUDA_FLAGS "-D__CUDACC_VER_MAJOR__=${CUDA_VERSION_MAJOR} -D__CUDACC_VER_MINOR__=${CUDA_VERSION_MINOR}")
+#set CUDA version (disabled for non-CUDA build)
+# include(deps/cutlass/CUDA.cmake)
+# string(REPLACE "." ";" CUDA_VERSION_PARTS ${CUDA_VERSION})
+# list(GET CUDA_VERSION_PARTS 0 CUDA_VERSION_MAJOR)
+# list(GET CUDA_VERSION_PARTS 1 CUDA_VERSION_MINOR)
+# list(APPEND CMAKE_CUDA_FLAGS "-D__CUDACC_VER_MAJOR__=${CUDA_VERSION_MAJOR} -D__CUDACC_VER_MINOR__=${CUDA_VERSION_MINOR}")
 
 # TODO: Currently disable CUTLASS_ARCH_MMA_SM80_ENABLED flag
 # since we target Triton to perform codegen
@@ -77,10 +77,10 @@ if (NOT "${USE_CUDA}" STREQUAL "OFF")
   endif(CUDA_FOUND)
 endif()
 
-#set CUTLASS
-set(CUTLASS_DIR ${PROJECT_SOURCE_DIR}/deps/cutlass)
-include_directories(deps/cutlass/include)
-include_directories(deps/cutlass/tools/util/include)
+#set CUTLASS (disabled for non-CUDA build)
+# set(CUTLASS_DIR ${PROJECT_SOURCE_DIR}/deps/cutlass)
+# include_directories(deps/cutlass/include)
+# include_directories(deps/cutlass/tools/util/include)
 
 #include_directories(${YIRAGE_INCLUDE_DIRS})
 
@@ -98,8 +98,8 @@ include_directories(${Z3_CXX_INCLUDE_DIRS})
 #target_link_libraries(yirage_runtime PUBLIC ${Z3_LIBRARIES})
 list(APPEND YIRAGE_LINK_LIBS ${Z3_LIBRARIES})
 
-add_subdirectory(deps/json)
-list(APPEND YIRAGE_LINK_LIBS nlohmann_json::nlohmann_json)
+# add_subdirectory(deps/json)  # Empty directory, commenting out
+# list(APPEND YIRAGE_LINK_LIBS nlohmann_json::nlohmann_json)  # json dependency disabled
 
 #add_subdirectory(deps/z3 z3 EXCLUDE_FROM_ALL)
 #include_directories(deps/z3/src/api/c++)
