@@ -176,8 +176,9 @@ TranspileResult Transpiler::transpile_ugraph() {
       "std::vector<void*> output_tensors, "
       "void* buf, cudaStream_t stream, void * profiler_buffer){");
   for (kn::KNOperator *const op : g->operators) {
-    std::string op_type_str;
-    to_json(op_type_str, op->op_type);
+    json op_type_json;
+    to_json(op_type_json, op->op_type);
+    std::string op_type_str = op_type_json.get<std::string>();
     exec.e("{");
     exec.e("// OP type: $", op_type_str);
     switch (op->op_type) {

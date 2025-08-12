@@ -21,7 +21,10 @@
 #include "yirage/threadblock/serializer/kernel_params.h"
 #include "yirage/threadblock/smem_tensor.h"
 #include <vector>
+
+#ifdef USE_CUDA
 #include <vector_types.h>
+#endif
 
 namespace yirage {
 namespace threadblock {

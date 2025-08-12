@@ -70,6 +70,13 @@ enum CmemLayout {
   CmemUnknownLayout = 399,
 };
 
+NLOHMANN_JSON_SERIALIZE_ENUM(CmemLayout,
+                             {
+                                 {CmemRowMajor, "CmemRowMajor"},
+                                 {CmemColumnMajor, "CmemColumnMajor"},
+                                 {CmemUnknownLayout, "CmemUnknownLayout"},
+                             })
+
 CmemLayout dmemlayout_to_cmemlayout(DmemLayout dmem_layout);
 
 } // namespace layout

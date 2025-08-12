@@ -33,6 +33,7 @@ size_t get_datatype_size(DataType type) {
     case DT_UNKNOWN:
     default:
       assert(false);
+      return 0; // Should never reach here
   }
 }
 
@@ -59,16 +60,16 @@ std::string get_datatype_str(DataType dtype) {
   }
 }
 
-bool is_threadblock_element_unary(TBOperatorType op_type) {
+bool is_threadblock_element_unary(KNOperatorType op_type) {
   switch (op_type) {
-    case TB_EXP_OP:
-    case TB_SQUARE_OP:
-    case TB_SQRT_OP:
-    case TB_SILU_OP:
-    case TB_GELU_OP:
-    case TB_RELU_OP:
-    case TB_CLAMP_OP:
-    case TB_MUL_SCALAR_OP:
+    case KN_EXP_OP:
+    case KN_SQUARE_OP:
+    case KN_SQRT_OP:
+    case KN_SILU_OP:
+    case KN_GELU_OP:
+    case KN_RELU_OP:
+    case KN_CLAMP_OP:
+    case KN_MUL_SCALAR_OP:
       return true;
     default:
       return false;

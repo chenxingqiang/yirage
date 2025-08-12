@@ -16,7 +16,19 @@
 
 #include "yirage/type.h"
 #include <cassert>
+#ifdef USE_CUTLASS
 #include <cute/layout.hpp>
+#else
+// Fallback when CUTLASS/cute is not available
+namespace cute {
+  template<typename T>
+  struct Layout {
+    T data;
+    Layout() = default;
+    Layout(const T& d) : data(d) {}
+  };
+}
+#endif
 #include <functional>
 #include <iostream>
 #include <string>

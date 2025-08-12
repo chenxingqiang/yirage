@@ -3,7 +3,13 @@
 #include <algorithm>
 #include <unordered_set>
 #include <vector>
+#ifdef __CUDACC__
 #include <vector_types.h>
+#include <cuda_runtime.h>
+#else
+#include "yirage/compat/vector_types.h"
+#include "yirage/compat/cuda_runtime.h"
+#endif
 
 template <typename Container>
 typename Container::const_iterator

@@ -1,4 +1,4 @@
-name: yirage
+name: yirage-yica
 channels:
   - conda-forge
   - pytorch
@@ -8,7 +8,12 @@ dependencies:
   - python=3.11
   - pip
   - setuptools
+  - cmake>=3.24
+  - make
+  - gcc_linux-64>=9.0  # For C++17 support
+  - gxx_linux-64>=9.0
   - pip:
+    # Core dependencies
     - z3-solver==4.15.0.0
     - transformers
     - cmake-build-extension
@@ -16,10 +21,28 @@ dependencies:
     - flashinfer-python
     - tqdm
     - graphviz
-    - cmake
-    - cython
+    
+    # YICA Hardware Acceleration dependencies
+    - cython>=0.29.32
+    - pybind11>=2.10.0
     - numpy==2.1.2
     - torch==2.6.0+cu118
     - torchvision==0.21.0+cu118
     - torchaudio==2.6.0+cu118
     - --extra-index-url https://download.pytorch.org/whl/cu118
+    
+    # Performance and monitoring
+    - psutil>=5.9.0
+    - msgpack>=1.0.0
+    - protobuf>=3.20.0
+    
+    # Development and testing
+    - pytest>=7.0.0
+    - pytest-cov>=4.0.0
+    - pytest-xdist>=2.5.0
+    - black>=22.0.0
+    - mypy>=0.991
+    
+    # Optional Jupyter support
+    - jupyter>=1.0.0
+    - ipython>=8.0.0

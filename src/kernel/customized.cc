@@ -269,14 +269,17 @@ KNCustomizedOp::~KNCustomizedOp() {
 }
 
 KNCustomizedOp::operator json() const {
-  return json{{"op_type", op_type},
-              {"input_tensors", input_tensors},
-              {"output_tensors", output_tensors},
-              {"bgraph", bgraph}};
+  json j;
+  j["op_type"] = op_type;
+  j["input_tensors"] = input_tensors;
+  j["output_tensors"] = output_tensors;
+  j["bgraph"] = bgraph;
+  return j;
 }
 
 size_t KNCustomizedOp::get_owner_independent_hash() const {
   assert(false && "To be implemented");
+  return 0; // Should never reach here
 }
 
 } // namespace kernel

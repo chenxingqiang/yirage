@@ -15,13 +15,32 @@
 
 #pragma once
 
+#ifdef USE_CUTLASS
 #include "cutlass/array.h"
 #include "cutlass/fast_math.h"
+#include <cutlass/cutlass.h>
+#else
+// Fallback definitions when CUTLASS is not available
+#define CUTLASS_HOST_DEVICE
+#define CUTLASS_DEVICE
+#define CUTLASS_HOST
+namespace cutlass {
+  template<typename T, int N>
+  struct Array {
+    T data[N];
+    CUTLASS_HOST_DEVICE T& operator[](int i) { return data[i]; }
+    CUTLASS_HOST_DEVICE const T& operator[](int i) const { return data[i]; }
+  };
+}
+#endif
+
 #include "yirage/config.h"
 #include "yirage/type.h"
+
+#ifdef USE_CUDA
 #include <cublas_v2.h>
 #include <cudnn.h>
-#include <cutlass/cutlass.h>
+#endif
 #include <iostream>
 #include <sstream>
 #include <string>

@@ -15,7 +15,14 @@
 
 #pragma once
 
+#ifdef USE_CUTLASS
 #include "cutlass/cutlass.h"
+#else
+// Fallback definitions when CUTLASS is not available
+#define CUTLASS_HOST_DEVICE
+#define CUTLASS_DEVICE
+#define CUTLASS_HOST
+#endif
 #include "yirage/layout.h"
 #include "yirage/type.h"
 #include "yirage/utils/json_utils.h"

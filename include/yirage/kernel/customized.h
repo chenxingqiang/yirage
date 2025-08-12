@@ -20,7 +20,10 @@
 #include "yirage/threadblock/graph.h"
 #include "yirage/threadblock/operator.h"
 #include <tuple>
+
+#ifdef USE_CUDA
 #include <vector_types.h>
+#endif
 
 namespace yirage {
 namespace kernel {
@@ -31,9 +34,9 @@ public:
                  std::vector<DTensor> const &inputs,
                  yirage::threadblock::Graph const &_graph);
   virtual ~KNCustomizedOp();
-  bool profile(ProfileResult &profile);
+  bool profile(ProfileResult &profile) override;
   void run(void);
-  bool fingerprint(void);
+  bool fingerprint(void) override;
   size_t get_owner_independent_hash() const override;
 
   operator json() const override;

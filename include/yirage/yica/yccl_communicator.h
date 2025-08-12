@@ -294,8 +294,8 @@ namespace yccl_utils {
                                       int world_size, const DieMeshTopology& topology);
     
     // 数据类型转换
-    YCCLDataType torch_dtype_to_yccl(torch::ScalarType dtype);
-    torch::ScalarType yccl_dtype_to_torch(YCCLDataType dtype);
+    // YCCLDataType torch_dtype_to_yccl(torch::ScalarType dtype); // TODO: Add torch dependency
+    // torch::ScalarType yccl_dtype_to_torch(YCCLDataType dtype); // TODO: Add torch dependency
     
     // 调试和诊断
     void print_topology_info(const DieMeshTopology& topology);

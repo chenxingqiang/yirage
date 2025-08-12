@@ -9,7 +9,7 @@ namespace yica {
 // ===== MatmulOperatorGenerator Implementation =====
 
 bool MatmulOperatorGenerator::can_generate(const kernel::KNOperator* op) const {
-    return op && op->op_type == kernel::KNOperatorType::KN_MATMUL_OP;
+    return op && op->op_type == type::KN_MATMUL_OP;
 }
 
 GenerationResult MatmulOperatorGenerator::generate(
@@ -127,7 +127,7 @@ void MatmulOperatorGenerator::optimize_matmul_tiling(
     int& tile_m, int& tile_n, int& tile_k) const {
     
     // 基于CIM阵列大小和SPM容量优化分块
-    int max_spm_elements = config.spm_size_kb * 256; // 假设float类型
+    int max_spm_elements = 2048 * 256; // 2MB SPM，假设float类型
     
     // 简化的分块策略
     tile_m = std::min(32, M);
@@ -145,8 +145,8 @@ void MatmulOperatorGenerator::optimize_matmul_tiling(
 // ===== ElementwiseOperatorGenerator Implementation =====
 
 bool ElementwiseOperatorGenerator::can_generate(const kernel::KNOperator* op) const {
-    return op && (op->op_type == kernel::KNOperatorType::KN_EW_ADD_OP ||
-                  op->op_type == kernel::KNOperatorType::KN_EW_MUL_OP);
+    return op && (op->op_type == type::KN_ADD_OP ||
+                  op->op_type == type::KN_MUL_OP);
 }
 
 GenerationResult ElementwiseOperatorGenerator::generate(
@@ -182,7 +182,7 @@ std::string ElementwiseOperatorGenerator::generate_elementwise_kernel(
     
     std::stringstream ss;
     std::string op_code = get_elementwise_operation_code(
-        op->op_type == kernel::KNOperatorType::KN_EW_ADD_OP ? "add" : "mul");
+        op->op_type == type::KN_ADD_OP ? "add" : "mul");
     
     ss << "__global__ void cim_elementwise_kernel(\n";
     ss << "    const float* input1, const float* input2, float* output,\n";
@@ -236,7 +236,8 @@ std::string ElementwiseOperatorGenerator::get_elementwise_operation_code(const s
 // ===== ConvolutionOperatorGenerator Implementation =====
 
 bool ConvolutionOperatorGenerator::can_generate(const kernel::KNOperator* op) const {
-    return op && op->op_type == kernel::KNOperatorType::KN_CONV_2D_OP;
+    // TODO: 添加CONV2D支持
+    return false; // op && op->op_type == type::KN_CONV2D_OP;
 }
 
 GenerationResult ConvolutionOperatorGenerator::generate(
@@ -332,7 +333,7 @@ void ConvolutionOperatorGenerator::optimize_conv_mapping(
     block_w = std::min(16, input_w);
     
     // 考虑SPM容量限制
-    int max_elements = config.spm_size_kb * 256;
+    int max_elements = 2048 * 256; // 2MB SPM
     while ((block_h * block_w + kernel_h * kernel_w) > max_elements) {
         block_h = std::max(8, block_h - 4);
         block_w = std::max(8, block_w - 4);
@@ -342,7 +343,7 @@ void ConvolutionOperatorGenerator::optimize_conv_mapping(
 // ===== NormalizationOperatorGenerator Implementation =====
 
 bool NormalizationOperatorGenerator::can_generate(const kernel::KNOperator* op) const {
-    return op && op->op_type == kernel::KNOperatorType::KN_RMS_NORM_OP;
+    return op && op->op_type == type::KN_RMS_NORM_OP;
 }
 
 GenerationResult NormalizationOperatorGenerator::generate(
@@ -460,8 +461,8 @@ std::string NormalizationOperatorGenerator::generate_reduction_code(
 // ===== ActivationOperatorGenerator Implementation =====
 
 bool ActivationOperatorGenerator::can_generate(const kernel::KNOperator* op) const {
-    return op && (op->op_type == kernel::KNOperatorType::KN_RELU_OP ||
-                  op->op_type == kernel::KNOperatorType::KN_GELU_OP);
+    return op && (op->op_type == type::KN_RELU_OP ||
+                  op->op_type == type::KN_GELU_OP);
 }
 
 GenerationResult ActivationOperatorGenerator::generate(
@@ -496,7 +497,7 @@ std::string ActivationOperatorGenerator::generate_activation_kernel(
     const YICAConfig& config) const {
     
     std::stringstream ss;
-    std::string activation_type = (op->op_type == kernel::KNOperatorType::KN_RELU_OP) ? "relu" : "gelu";
+    std::string activation_type = (op->op_type == type::KN_RELU_OP) ? "relu" : "gelu";
     std::string activation_code = get_activation_function_code(activation_type);
     
     ss << "__global__ void cim_activation_kernel(\n";
@@ -527,8 +528,9 @@ std::string ActivationOperatorGenerator::get_activation_function_code(const std:
 // ===== MemoryOperatorGenerator Implementation =====
 
 bool MemoryOperatorGenerator::can_generate(const kernel::KNOperator* op) const {
-    return op && (op->op_type == kernel::KNOperatorType::KN_INPUT_OP ||
-                  op->op_type == kernel::KNOperatorType::KN_RESHAPE_OP);
+    return op && op->op_type == type::KN_INPUT_OP;
+    // TODO: 添加RESHAPE支持
+    // || op->op_type == type::KN_RESHAPE_OP);
 }
 
 GenerationResult MemoryOperatorGenerator::generate(
@@ -543,7 +545,7 @@ GenerationResult MemoryOperatorGenerator::generate(
     }
     
     std::string kernel_code;
-    if (op->op_type == kernel::KNOperatorType::KN_INPUT_OP) {
+    if (op->op_type == type::KN_INPUT_OP) {
         kernel_code = generate_memory_copy_kernel(op, context.target_config);
     } else {
         kernel_code = generate_memory_reshape_kernel(op, context.target_config);

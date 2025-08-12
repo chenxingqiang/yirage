@@ -20,7 +20,9 @@
 namespace yirage {
 namespace threadblock {
 
+#ifdef USE_CUTLASS
 using namespace cutlass;
+#endif
 
 class TBRmsNormOp : public TBOperator {
 public:

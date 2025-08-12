@@ -2,8 +2,17 @@
 
 #include "containers.h"
 #include <fstream>
+#ifdef HAVE_NLOHMANN_JSON
 #include <nlohmann/json.hpp>
+#else
+#include "yirage/compat/nlohmann/json.hpp"
+#endif
+
+#ifdef __CUDACC__
 #include <vector_types.h>
+#else
+#include "yirage/compat/vector_types.h"
+#endif
 
 using json = nlohmann::json;
 

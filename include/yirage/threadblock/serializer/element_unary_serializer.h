@@ -15,7 +15,11 @@
 
 #pragma once
 
+#ifdef __CUDACC__
 #include <vector_types.h>
+#else
+#include "yirage/compat/vector_types.h"
+#endif
 
 namespace yirage {
 namespace threadblock {

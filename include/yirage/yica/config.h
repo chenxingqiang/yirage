@@ -18,6 +18,7 @@ struct YICAConfig {
     
     // SPM (Scratchpad Memory) Configuration  
     uint64_t spm_size_kb = 512;
+    uint64_t spm_size_per_die = 256;  // KB per die
     uint32_t spm_banks = 4;
     float spm_bandwidth_gbps = 500.0f;
     

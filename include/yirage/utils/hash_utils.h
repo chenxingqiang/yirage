@@ -5,7 +5,13 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#ifdef __CUDACC__
 #include <vector_types.h>
+#include <cuda_runtime.h>
+#else
+#include "yirage/compat/vector_types.h"
+#include "yirage/compat/cuda_runtime.h"
+#endif
 
 // tuple hashing pulled from
 // https://www.variadic.xyz/2018/01/15/hashing-stdpair-and-stdtuple/

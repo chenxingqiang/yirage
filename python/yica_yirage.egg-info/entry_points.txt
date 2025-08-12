@@ -1,0 +1,4 @@
+[console_scripts]
+yica-analyze = yirage.yica_advanced:main
+yica-benchmark = yirage.yica_performance_monitor:main
+yica-optimizer = yirage.yica_optimizer:main

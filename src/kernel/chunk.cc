@@ -78,13 +78,13 @@ KNChunkOp::~KNChunkOp() {
 }
 
 KNChunkOp::operator json() const {
-  return {
-      {"op_type", op_type},
-      {"input_tensors", input_tensors},
-      {"output_tensors", output_tensors},
-      {"chunk_size", chunk_size},
-      {"chunk_dim", chunk_dim},
-  };
+  json j;
+  j["op_type"] = op_type;
+  j["input_tensors"] = input_tensors;
+  j["output_tensors"] = output_tensors;
+  j["chunk_size"] = chunk_size;
+  j["chunk_dim"] = chunk_dim;
+  return j;
 }
 
 void from_json(json const &j, KNChunkOp &op) {

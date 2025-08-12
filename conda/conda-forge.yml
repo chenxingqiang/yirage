@@ -1,0 +1,119 @@
+# This file is used by conda-forge to configure the CI/CD pipeline
+# for building and testing the package on multiple platforms.
+
+# CI/CD configuration
+github:
+  # GitHub Actions configuration
+  actions:
+    # Enable GitHub Actions for CI/CD
+    enabled: true
+    # Use the latest version of GitHub Actions
+    version: 3
+
+# Build configuration
+build_platform:
+  # Build on these platforms
+  linux_64: true
+  linux_aarch64: true
+  linux_ppc64le: true
+  osx_64: true
+  osx_arm64: true
+  # Windows is currently skipped due to complex dependencies
+  win_64: false
+
+# Test configuration
+test:
+  # Test on these platforms
+  platforms:
+    linux_64: true
+    linux_aarch64: true
+    linux_ppc64le: true
+    osx_64: true
+    osx_arm64: true
+    win_64: false
+
+# Dependencies
+dependencies:
+  # Add conda-forge as the primary channel
+  channels:
+    - conda-forge
+    - defaults
+  # Specify minimum Python version
+  python:
+    - "3.8"
+    - "3.9"
+    - "3.10"
+    - "3.11"
+    - "3.12"
+
+# Provider configuration
+provider:
+  # Use GitHub Actions for CI/CD
+  linux_64: github_actions
+  linux_aarch64: github_actions
+  linux_ppc64le: github_actions
+  osx_64: github_actions
+  osx_arm64: github_actions
+  win_64: azure
+
+# Azure configuration (for Windows builds if needed)
+azure:
+  # Use Azure Pipelines for Windows builds
+  enabled: false
+  # Store build artifacts
+  store_build_artifacts: true
+
+# Travis CI configuration (legacy, not used)
+travis:
+  enabled: false
+
+# AppVeyor configuration (legacy, not used)
+appveyor:
+  enabled: false
+
+# Drone configuration (legacy, not used)
+drone:
+  enabled: false
+
+# Circle CI configuration (legacy, not used)
+circle:
+  enabled: false
+
+# Documentation
+docs:
+  # Build documentation
+  enabled: true
+  # Use Sphinx for documentation
+  builder: sphinx
+  # Documentation source directory
+  source_dir: docs/source
+  # Documentation build directory
+  build_dir: docs/build
+
+# Linting
+lint:
+  # Enable linting
+  enabled: true
+  # Use conda-forge's linting configuration
+  config: conda_forge
+
+# Recipe maintenance
+recipe_maintainers:
+  - YICA-Team
+
+# Package information
+package:
+  # Package name
+  name: yica-yirage
+  # Package version (will be updated automatically)
+  version: "0.1.0"
+  # Package description
+  description: "YICA-Yirage: AI Computing Optimization Framework"
+  # Package license
+  license: MIT
+  # Package homepage
+  home: https://github.com/YICA-Team/yica-yirage
+  # Package documentation
+  doc_url: https://yica-yirage.readthedocs.io/
+  # Package development URL
+  dev_url: https://github.com/YICA-Team/yica-yirage

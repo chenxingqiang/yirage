@@ -73,10 +73,12 @@ KNAllReduceOp::~KNAllReduceOp() {
 }
 
 KNAllReduceOp::operator json() const {
-  return json{{"op_type", op_type},
-              {"input_tensors", input_tensors},
-              {"output_tensors", output_tensors},
-              {"inplace", inplace}};
+  json j;
+  j["op_type"] = op_type;
+  j["input_tensors"] = input_tensors;
+  j["output_tensors"] = output_tensors;
+  j["inplace"] = inplace;
+  return j;
 }
 
 } // namespace kernel

@@ -21,7 +21,14 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef USE_CUDA
 #include <cublas_v2.h>
+#else
+// Fallback definitions when CUDA is not available
+typedef void* cublasHandle_t;
+typedef int cublasStatus_t;
+#define CUBLAS_STATUS_SUCCESS 0
+#endif
 namespace yirage {
 namespace kernel {
 

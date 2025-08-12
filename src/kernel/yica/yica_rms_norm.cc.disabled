@@ -1,0 +1,276 @@
+/* Copyright 2023-2024 CMU
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "yirage/kernel/yica_rms_norm.h"
+#include "yirage/kernel/device_memory_manager.h"
+#include <iostream>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+
+namespace yirage {
+namespace kernel {
+
+YICARMSNormOp::YICARMSNormOp(Graph* graph,
+                             const DTensor& input,
+                             const DTensor& weight,
+                             float epsilon,
+                             const YICAHardwareConfig& config)
+    : YICAKernelBase(graph, config),
+      input_(input),
+      weight_(weight),
+      epsilon_(epsilon) {
+    
+    // 创建输出张量
+    output_ = input;
+    output_.guid = DTensor::next_guid++;
+    graph_->allocate(output_);
+    
+    // 创建RMS值张量（每个batch的RMS值）
+    rms_values_ = DTensor();
+    rms_values_.num_dims = 1;
+    rms_values_.dim[0] = input.dim[0];  // batch size
+    rms_values_.data_type = input.data_type;
+    rms_values_.guid = DTensor::next_guid++;
+    graph_->allocate(rms_values_);
+}
+
+YICARMSNormOp::~YICARMSNormOp() {
+    graph_->free(output_);
+    graph_->free(rms_values_);
+}
+
+bool YICARMSNormOp::initialize() {
+    if (is_initialized_) {
+  return true;
+}
+
+    // 生成YIS指令序列
+    instruction_sequence_ = generate_yis_instructions();
+    
+    // 性能估算
+    size_t num_elements = input_.num_elements();
+    size_t batch_size = input_.dim[0];
+    size_t hidden_size = num_elements / batch_size;
+    
+    // RMSNorm需要：平方、归约、开方、除法、乘法
+    float ops_per_element = 5.0f;
+    float total_gflops = num_elements * ops_per_element / 1e9f;
+    float peak_tflops = hw_config_.num_cim_arrays * hw_config_.cim_compute_throughput_tflops;
+    
+    execution_time_ms_ = total_gflops / (peak_tflops * 1000);
+    cim_utilization_ = 0.7f;  // RMSNorm有一些串行部分
+    memory_efficiency_ = 0.85f;
+    
+    is_initialized_ = true;
+    return true;
+}
+
+bool YICARMSNormOp::execute() {
+    if (!is_initialized_) {
+        if (!initialize()) {
+            return false;
+        }
+    }
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    // 执行RMS归一化
+    bool success = execute_rms_normalization();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    execution_time_ms_ = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+    
+    return success;
+}
+
+std::vector<yis::Instruction> YICARMSNormOp::generate_yis_instructions() {
+    std::vector<yis::Instruction> instructions;
+    
+    // 1. 计算平方和（归约）
+    auto reduction_insts = generate_reduction_instructions();
+    instructions.insert(instructions.end(), 
+                       reduction_insts.begin(), 
+                       reduction_insts.end());
+    
+    // 2. 归一化
+    auto norm_insts = generate_normalization_instructions();
+    instructions.insert(instructions.end(),
+                       norm_insts.begin(),
+                       norm_insts.end());
+    
+    // 3. 最终同步
+    yis::Instruction sync;
+    sync.type = yis::InstructionType::SYNC_BAR;
+    sync.sync_required = true;
+    instructions.push_back(sync);
+  
+  return instructions;
+}
+
+std::vector<yis::Instruction> YICARMSNormOp::generate_reduction_instructions() {
+    std::vector<yis::Instruction> instructions;
+    
+    size_t batch_size = input_.dim[0];
+    size_t hidden_size = input_.num_elements() / batch_size;
+    
+    for (size_t b = 0; b < batch_size; b++) {
+        int cim_id = b % hw_config_.num_cim_arrays;
+        
+        // 加载输入数据到SPM
+        yis::Instruction load;
+        load.type = yis::InstructionType::ECOPY_G2S;
+        load.src_addr = input_.data_offset + b * hidden_size * sizeof(float);
+        load.size = hidden_size * sizeof(float);
+        load.cim_array_id = cim_id;
+        instructions.push_back(load);
+        
+        // 计算平方（element-wise）
+        yis::Instruction square;
+        square.type = yis::InstructionType::ELEM_OP;  // SQUARE操作
+        square.cim_array_id = cim_id;
+        square.size = hidden_size * sizeof(float);
+        instructions.push_back(square);
+        
+        // 归约求和
+        yis::Instruction reduce;
+        reduce.type = yis::InstructionType::REDUCE;
+        reduce.cim_array_id = cim_id;
+        reduce.size = hidden_size * sizeof(float);
+        instructions.push_back(reduce);
+        
+        // 存储RMS值
+        yis::Instruction store_rms;
+        store_rms.type = yis::InstructionType::ECOPY_S2G;
+        store_rms.dst_addr = rms_values_.data_offset + b * sizeof(float);
+        store_rms.size = sizeof(float);
+        store_rms.cim_array_id = cim_id;
+        instructions.push_back(store_rms);
+  }
+  
+  return instructions;
+}
+
+std::vector<yis::Instruction> YICARMSNormOp::generate_normalization_instructions() {
+    std::vector<yis::Instruction> instructions;
+    
+    size_t batch_size = input_.dim[0];
+    size_t hidden_size = input_.num_elements() / batch_size;
+    
+    for (size_t b = 0; b < batch_size; b++) {
+        int cim_id = b % hw_config_.num_cim_arrays;
+        
+        // 加载RMS值
+        yis::Instruction load_rms;
+        load_rms.type = yis::InstructionType::ECOPY_G2S;
+        load_rms.src_addr = rms_values_.data_offset + b * sizeof(float);
+        load_rms.size = sizeof(float);
+        load_rms.cim_array_id = cim_id;
+        instructions.push_back(load_rms);
+        
+        // 广播RMS值
+        yis::Instruction broadcast;
+        broadcast.type = yis::InstructionType::ICOPY_BC;
+        broadcast.cim_array_id = cim_id;
+        broadcast.size = hidden_size * sizeof(float);
+        instructions.push_back(broadcast);
+        
+        // 加载输入数据
+        yis::Instruction load_input;
+        load_input.type = yis::InstructionType::ECOPY_G2S;
+        load_input.src_addr = input_.data_offset + b * hidden_size * sizeof(float);
+        load_input.size = hidden_size * sizeof(float);
+        load_input.cim_array_id = cim_id;
+        instructions.push_back(load_input);
+        
+        // 除以RMS值（归一化）
+        yis::Instruction normalize;
+        normalize.type = yis::InstructionType::ELEM_OP;  // DIV操作
+        normalize.cim_array_id = cim_id;
+        normalize.size = hidden_size * sizeof(float);
+        instructions.push_back(normalize);
+        
+        // 如果有权重，乘以权重
+        if (weight_.data_offset != 0) {
+            yis::Instruction load_weight;
+            load_weight.type = yis::InstructionType::ECOPY_G2S;
+            load_weight.src_addr = weight_.data_offset;
+            load_weight.size = hidden_size * sizeof(float);
+            load_weight.cim_array_id = cim_id;
+            instructions.push_back(load_weight);
+            
+            yis::Instruction mul_weight;
+            mul_weight.type = yis::InstructionType::ELEM_OP;  // MUL操作
+            mul_weight.cim_array_id = cim_id;
+            mul_weight.size = hidden_size * sizeof(float);
+            instructions.push_back(mul_weight);
+        }
+        
+        // 存储结果
+        yis::Instruction store;
+        store.type = yis::InstructionType::ECOPY_S2G;
+        store.dst_addr = output_.data_offset + b * hidden_size * sizeof(float);
+        store.size = hidden_size * sizeof(float);
+        store.cim_array_id = cim_id;
+        instructions.push_back(store);
+    }
+    
+    return instructions;
+}
+
+bool YICARMSNormOp::execute_rms_normalization() {
+    using namespace yirage::kernel;
+    DeviceMemoryManager* dmm = DeviceMemoryManager::get_instance();
+    if (dmm == nullptr) {
+        std::cerr << "YICARMSNormOp: DeviceMemoryManager not initialized" << std::endl;
+        return false;
+    }
+    char* base_ptr = dmm->data_base_ptr[dmm->gpu_id];
+    if (base_ptr == nullptr) {
+        std::cerr << "YICARMSNormOp: base_ptr is null" << std::endl;
+        return false;
+    }
+
+    size_t batch_size = input_.dim[0];
+    size_t hidden_size = input_.num_elements() / batch_size;
+
+    float* input_data = reinterpret_cast<float*>(base_ptr + input_.data_offset);
+    float* output_data = reinterpret_cast<float*>(base_ptr + output_.data_offset);
+    float* rms_data = reinterpret_cast<float*>(base_ptr + rms_values_.data_offset);
+    float* weight_data = (weight_.data_offset != 0)
+        ? reinterpret_cast<float*>(base_ptr + weight_.data_offset)
+        : nullptr;
+
+    for (size_t b = 0; b < batch_size; b++) {
+        float* in_row = input_data + b * hidden_size;
+        float* out_row = output_data + b * hidden_size;
+
+        float sum_sq = 0.0f;
+        for (size_t i = 0; i < hidden_size; i++) sum_sq += in_row[i] * in_row[i];
+        float rms = std::sqrt(sum_sq / hidden_size + epsilon_);
+        rms_data[b] = rms;
+
+        for (size_t i = 0; i < hidden_size; i++) {
+            float v = in_row[i] / rms;
+            if (weight_data) v *= weight_data[i];
+            out_row[i] = v;
+        }
+    }
+
+    return true;
+}
+
+} // namespace kernel
+} // namespace yirage 

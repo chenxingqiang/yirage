@@ -1,0 +1,265 @@
+/* Copyright 2023-2024 CMU
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "yirage/kernel/yica_element_ops.h"
+#include "yirage/kernel/device_memory_manager.h"
+#include <iostream>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+#include <algorithm>
+
+namespace yirage {
+namespace kernel {
+
+// Unary操作构造函数
+YICAElementOp::YICAElementOp(Graph* graph,
+                             const DTensor& input,
+                             ElementOpType op_type,
+                             const YICAHardwareConfig& config)
+    : YICAKernelBase(graph, config),
+      op_type_(op_type),
+      num_operands_(1) {
+    
+    inputs_.push_back(input);
+    
+    // 创建输出张量
+    output_ = input;
+    output_.guid = DTensor::next_guid++;
+    graph_->allocate(output_);
+}
+
+// Binary操作构造函数
+YICAElementOp::YICAElementOp(Graph* graph,
+                             const DTensor& input1,
+                             const DTensor& input2,
+                             ElementOpType op_type,
+                             const YICAHardwareConfig& config)
+    : YICAKernelBase(graph, config),
+      op_type_(op_type),
+      num_operands_(2) {
+    
+    inputs_.push_back(input1);
+    inputs_.push_back(input2);
+    
+    // 计算广播后的输出形状
+    output_ = input1;  // 简化：假设相同形状
+    output_.guid = DTensor::next_guid++;
+    graph_->allocate(output_);
+}
+
+// Ternary操作构造函数 (FMA)
+YICAElementOp::YICAElementOp(Graph* graph,
+                             const DTensor& a,
+                             const DTensor& b,
+                             const DTensor& c,
+                             ElementOpType op_type,
+                             const YICAHardwareConfig& config)
+    : YICAKernelBase(graph, config),
+      op_type_(op_type),
+      num_operands_(3) {
+    
+    inputs_.push_back(a);
+    inputs_.push_back(b);
+    inputs_.push_back(c);
+    
+    output_ = a;  // 简化：假设相同形状
+    output_.guid = DTensor::next_guid++;
+    graph_->allocate(output_);
+}
+
+YICAElementOp::~YICAElementOp() {
+    graph_->free(output_);
+}
+
+bool YICAElementOp::initialize() {
+    if (is_initialized_) {
+        return true;
+    }
+    
+    // 计算向量化参数
+    size_t num_elements = output_.num_elements();
+    elements_per_tile_ = hw_config_.vector_width;
+    vector_tiles_ = (num_elements + elements_per_tile_ - 1) / elements_per_tile_;
+    
+    // 生成YIS指令
+    instruction_sequence_ = generate_yis_instructions();
+    
+    // 性能估算
+    cim_utilization_ = std::min(1.0f, 
+        static_cast<float>(vector_tiles_) / hw_config_.num_cim_arrays);
+    memory_efficiency_ = 0.9f;  // Element-wise操作内存效率高
+    
+    is_initialized_ = true;
+    return true;
+}
+
+bool YICAElementOp::execute() {
+    if (!is_initialized_) {
+        if (!initialize()) {
+            return false;
+        }
+    }
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    // 执行向量化操作
+    bool success = execute_vectorized_operation();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    execution_time_ms_ = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+    
+    return success;
+}
+
+std::vector<yis::Instruction> YICAElementOp::generate_yis_instructions() {
+    return generate_vectorized_instructions();
+}
+
+std::vector<yis::Instruction> YICAElementOp::generate_vectorized_instructions() {
+    std::vector<yis::Instruction> instructions;
+    
+    size_t num_elements = output_.num_elements();
+    size_t tiles = calculate_vector_tiles();
+    
+    for (size_t tile = 0; tile < tiles; tile++) {
+        size_t offset = tile * elements_per_tile_ * sizeof(float);
+        size_t size = std::min(elements_per_tile_, num_elements - tile * elements_per_tile_) * sizeof(float);
+        int cim_id = tile % hw_config_.num_cim_arrays;
+        
+        // 加载输入数据
+        for (size_t i = 0; i < inputs_.size(); i++) {
+            yis::Instruction load;
+            load.type = yis::InstructionType::ECOPY_G2S;
+            load.src_addr = inputs_[i].data_offset + offset;
+            load.size = size;
+            load.cim_array_id = cim_id;
+            instructions.push_back(load);
+        }
+        
+        // 执行element-wise操作
+        yis::Instruction elem_op;
+        elem_op.type = yis::InstructionType::ELEM_OP;
+        elem_op.cim_array_id = cim_id;
+        elem_op.size = size;
+        instructions.push_back(elem_op);
+        
+        // 存储结果
+        yis::Instruction store;
+        store.type = yis::InstructionType::ECOPY_S2G;
+        store.dst_addr = output_.data_offset + offset;
+        store.size = size;
+        store.cim_array_id = cim_id;
+        instructions.push_back(store);
+    }
+    
+    // 最终同步
+    yis::Instruction sync;
+    sync.type = yis::InstructionType::SYNC_BAR;
+    sync.sync_required = true;
+    instructions.push_back(sync);
+    
+    return instructions;
+}
+
+size_t YICAElementOp::calculate_vector_tiles() const {
+    size_t num_elements = output_.num_elements();
+    return (num_elements + elements_per_tile_ - 1) / elements_per_tile_;
+}
+
+bool YICAElementOp::execute_vectorized_operation() {
+    using namespace yirage::kernel;
+    DeviceMemoryManager* dmm = DeviceMemoryManager::get_instance();
+    if (dmm == nullptr) {
+        std::cerr << "YICAElementOp: DeviceMemoryManager not initialized" << std::endl;
+        return false;
+    }
+    char* base_ptr = dmm->data_base_ptr[dmm->gpu_id];
+    if (base_ptr == nullptr) {
+        std::cerr << "YICAElementOp: base_ptr is null" << std::endl;
+        return false;
+    }
+
+    size_t num_elements = output_.num_elements();
+    float* out = reinterpret_cast<float*>(base_ptr + output_.data_offset);
+
+    auto get_ptr = [&](const DTensor& t) -> float* {
+        return reinterpret_cast<float*>(base_ptr + t.data_offset);
+    };
+
+    switch (op_type_) {
+        case ElementOpType::ADD: {
+            if (num_operands_ == 2) {
+                float* a = get_ptr(inputs_[0]);
+                float* b = get_ptr(inputs_[1]);
+                for (size_t i = 0; i < num_elements; i++) out[i] = a[i] + b[i];
+            }
+            break;
+        }
+        case ElementOpType::MUL: {
+            if (num_operands_ == 2) {
+                float* a = get_ptr(inputs_[0]);
+                float* b = get_ptr(inputs_[1]);
+                for (size_t i = 0; i < num_elements; i++) out[i] = a[i] * b[i];
+            }
+            break;
+        }
+        case ElementOpType::RELU: {
+            if (num_operands_ == 1) {
+                float* x = get_ptr(inputs_[0]);
+                for (size_t i = 0; i < num_elements; i++) out[i] = std::max(0.0f, x[i]);
+            }
+            break;
+        }
+        case ElementOpType::EXP: {
+            if (num_operands_ == 1) {
+                float* x = get_ptr(inputs_[0]);
+                for (size_t i = 0; i < num_elements; i++) out[i] = std::exp(x[i]);
+            }
+            break;
+        }
+        case ElementOpType::GELU: {
+            if (num_operands_ == 1) {
+                float* x = get_ptr(inputs_[0]);
+                const float c = 0.7978845608f; // sqrt(2/pi)
+                for (size_t i = 0; i < num_elements; i++) {
+                    float xc3 = x[i] * x[i] * x[i];
+                    float t = c * (x[i] + 0.044715f * xc3);
+                    out[i] = 0.5f * x[i] * (1.0f + std::tanh(t));
+                }
+            }
+            break;
+        }
+        case ElementOpType::FUSED_MUL_ADD: {
+            if (num_operands_ == 3) {
+                float* a = get_ptr(inputs_[0]);
+                float* b = get_ptr(inputs_[1]);
+                float* c = get_ptr(inputs_[2]);
+                for (size_t i = 0; i < num_elements; i++) out[i] = a[i] * b[i] + c[i];
+            }
+            break;
+        }
+        default: {
+            // 缺省：直接拷贝第一个输入
+            std::memcpy(out, base_ptr + inputs_[0].data_offset, output_.data_size());
+            break;
+        }
+    }
+
+    return true;
+}
+
+} // namespace kernel
+} // namespace yirage

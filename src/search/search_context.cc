@@ -7,7 +7,7 @@ void from_json(json const &j, SearchContext &c) {
   c.kn_graph = std::make_shared<kernel::Graph>();
   from_json(j.at("kn_graph"), *c.kn_graph);
   if (j.contains("tb_graph")) {
-    auto get_index = [&](int guid) {
+    auto get_index = [&](int guid) -> std::pair<size_t, size_t> {
       for (size_t i = 0; i < j.at("kn_graph").size(); ++i) {
         auto op = j.at("kn_graph")[i];
         for (size_t k = 0; k < op.at("output_tensors").size(); ++k) {
@@ -16,6 +16,7 @@ void from_json(json const &j, SearchContext &c) {
           }
         }
       }
+      return std::make_pair(0, 0); // Default fallback
     };
 
     c.tb_graph = std::make_shared<threadblock::Graph>();
@@ -25,13 +26,19 @@ void from_json(json const &j, SearchContext &c) {
       auto op = c.tb_graph->operators[i];
       if (op->op_type == type::TBOperatorType::TB_INPUT_OP) {
         auto index = get_index(
-            j.at("tb_graph").at("operators")[i].at("dtensor").at("guid"));
+            j.at("tb_graph").at("operators")[i].at("dtensor").at("guid").get<int>());
         static_cast<threadblock::TBInputOp *>(op)->dtensor =
             c.kn_graph->operators[index.first]->output_tensors[index.second];
       }
     }
   }
-  from_json(j.at("level"), c.level);
+  // Handle SearchLevel enum
+  if (j.contains("level")) {
+    auto level_value = j.at("level").get<int>();
+    c.level = static_cast<SearchLevel>(level_value);
+  } else {
+    c.level = SearchLevel::LV_KERNEL; // Default value
+  }
 }
 
 void to_json(json &j, SearchContext const &c) {

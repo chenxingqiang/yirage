@@ -1,0 +1,200 @@
+/* Copyright 2023-2024 CMU
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "yirage/kernel/yica_all_reduce.h"
+#include "yirage/kernel/device_memory_manager.h"
+#include <iostream>
+#include <chrono>
+#include <cstring>
+
+namespace yirage {
+namespace kernel {
+
+YICAAllReduceOp::YICAAllReduceOp(Graph* graph,
+                                 const DTensor& input,
+                                 AllReduceOp op_type,
+                                 bool inplace,
+                                 const YICAHardwareConfig& config)
+    : YICAKernelBase(graph, config),
+      input_tensor_(input),
+      reduction_op_(op_type),
+      inplace_(inplace) {
+    
+    // 创建输出张量
+    if (!inplace) {
+        output_tensor_ = input;
+        output_tensor_.guid = DTensor::next_guid++;
+        graph_->allocate(output_tensor_);
+    } else {
+        output_tensor_ = input;
+    }
+}
+
+YICAAllReduceOp::~YICAAllReduceOp() {
+    if (!inplace_) {
+        graph_->free(output_tensor_);
+    }
+}
+
+bool YICAAllReduceOp::initialize() {
+    if (is_initialized_) {
+        return true;
+    }
+    
+    // 计算CIM数据分配
+    size_t num_elements = input_tensor_.num_elements();
+    size_t elements_per_cim = (num_elements + hw_config_.num_cim_arrays - 1) / hw_config_.num_cim_arrays;
+    
+    cim_data_ranges_.clear();
+    for (uint32_t i = 0; i < hw_config_.num_cim_arrays; i++) {
+        size_t start = i * elements_per_cim;
+        size_t end = std::min(start + elements_per_cim, num_elements);
+        if (start < end) {
+            cim_data_ranges_.push_back({start, end});
+        }
+    }
+    
+    // 生成YIS指令序列
+    instruction_sequence_ = generate_yis_instructions();
+    
+    // 计算预期性能
+    cim_utilization_ = static_cast<float>(cim_data_ranges_.size()) / hw_config_.num_cim_arrays;
+    memory_efficiency_ = 0.85f;  // 典型值
+    
+    is_initialized_ = true;
+    return true;
+}
+
+bool YICAAllReduceOp::execute() {
+    if (!is_initialized_) {
+        if (!initialize()) {
+            return false;
+        }
+    }
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    // 执行真实的归约操作
+    bool success = perform_reduction();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    execution_time_ms_ = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+    
+    return success;
+}
+
+std::vector<yis::Instruction> YICAAllReduceOp::generate_yis_instructions() {
+    std::vector<yis::Instruction> instructions;
+    
+    // 1. 数据加载到SPM
+    auto load_instructions = generate_data_movement_instructions(
+        input_tensor_, output_tensor_, hw_config_.enable_double_buffering);
+    instructions.insert(instructions.end(), load_instructions.begin(), load_instructions.end());
+    
+    // 2. CIM内归约
+    auto cim_instructions = generate_cim_reduction_instructions();
+    instructions.insert(instructions.end(), cim_instructions.begin(), cim_instructions.end());
+    
+    // 3. 层次化归约
+    auto hier_instructions = generate_hierarchical_reduction_instructions();
+    instructions.insert(instructions.end(), hier_instructions.begin(), hier_instructions.end());
+    
+    // 4. 结果写回
+    if (!inplace_) {
+        yis::Instruction store_inst;
+        store_inst.type = yis::InstructionType::ECOPY_S2G;
+        store_inst.src_addr = 0;  // SPM地址
+        store_inst.dst_addr = output_tensor_.data_offset;
+        store_inst.size = output_tensor_.data_size();
+        store_inst.sync_required = true;
+        instructions.push_back(store_inst);
+    }
+    
+    return instructions;
+}
+
+std::vector<yis::Instruction> YICAAllReduceOp::generate_cim_reduction_instructions() {
+    std::vector<yis::Instruction> instructions;
+    
+    for (size_t i = 0; i < cim_data_ranges_.size(); i++) {
+        yis::Instruction inst;
+        inst.type = yis::InstructionType::REDUCE;
+        inst.cim_array_id = i;
+        inst.size = (cim_data_ranges_[i].second - cim_data_ranges_[i].first) * sizeof(float);
+        inst.sync_required = (i == cim_data_ranges_.size() - 1);
+        instructions.push_back(inst);
+    }
+    
+    return instructions;
+}
+
+std::vector<yis::Instruction> YICAAllReduceOp::generate_hierarchical_reduction_instructions() {
+    std::vector<yis::Instruction> instructions;
+    
+    // 树状归约
+    int active_cims = cim_data_ranges_.size();
+    while (active_cims > 1) {
+        for (int i = 0; i < active_cims / 2; i++) {
+            yis::Instruction inst;
+            inst.type = yis::InstructionType::REDUCE;
+            inst.cim_array_id = i;
+            inst.sync_required = false;
+            instructions.push_back(inst);
+        }
+        
+        // 同步
+        yis::Instruction sync_inst;
+        sync_inst.type = yis::InstructionType::SYNC_CIM;
+        sync_inst.sync_required = true;
+        instructions.push_back(sync_inst);
+        
+        active_cims = (active_cims + 1) / 2;
+    }
+    
+    return instructions;
+}
+
+bool YICAAllReduceOp::perform_reduction() {
+    // 使用 DeviceMemoryManager 将 data_offset 映射为可访问指针
+    using namespace yirage::kernel;
+    DeviceMemoryManager* dmm = DeviceMemoryManager::get_instance();
+    if (dmm == nullptr) {
+        std::cerr << "YICAAllReduceOp: DeviceMemoryManager not initialized" << std::endl;
+        return false;
+    }
+
+    char* base_ptr = dmm->data_base_ptr[dmm->gpu_id];
+    if (base_ptr == nullptr) {
+        std::cerr << "YICAAllReduceOp: base_ptr is null" << std::endl;
+        return false;
+    }
+
+    size_t bytes = input_tensor_.data_size();
+    float* input_data = reinterpret_cast<float*>(base_ptr + input_tensor_.data_offset);
+    float* output_data = reinterpret_cast<float*>(base_ptr + output_tensor_.data_offset);
+
+    // 单机/单张量 AllReduce：等价于拷贝（inplace 则保持不变）
+    if (!inplace_ && input_tensor_.data_offset != output_tensor_.data_offset) {
+        std::memcpy(output_data, input_data, bytes);
+    }
+
+    // 如果未来扩展到多设备/多分片，这里应聚合多个分片到 output_data
+    // 当前根据操作类型保持一致性（SUM/MEAN/MAX/MIN/PROD 对单张量均为恒等）
+    (void)reduction_op_;
+    return true;
+}
+
+} // namespace kernel
+} // namespace yirage

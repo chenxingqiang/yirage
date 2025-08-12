@@ -179,9 +179,9 @@ size_t QLearningState::compute_hash() const {
     combine_hash(std::hash<int>{}(static_cast<int>(current_metrics.memory_bandwidth_usage * 100)));
     
     // 对配置进行哈希
-    combine_hash(std::hash<int>{}(current_config.num_cim_arrays));
-    combine_hash(std::hash<int>{}(current_config.cim_frequency_mhz));
-    combine_hash(std::hash<size_t>{}(current_config.spm_size_kb));
+    combine_hash(std::hash<size_t>{}(current_config.num_cim_dies));
+    combine_hash(std::hash<float>{}(current_config.cim_frequency));
+    combine_hash(std::hash<size_t>{}(current_config.spm_size_per_die));
     
     // 对工作负载特征进行哈希
     combine_hash(std::hash<int>{}(static_cast<int>(workload.compute_intensity * 100)));
@@ -200,9 +200,9 @@ bool QLearningState::operator==(const QLearningState& other) const {
     return float_equal(current_metrics.cim_utilization, other.current_metrics.cim_utilization) &&
            float_equal(current_metrics.spm_hit_rate, other.current_metrics.spm_hit_rate) &&
            float_equal(current_metrics.memory_bandwidth_usage, other.current_metrics.memory_bandwidth_usage) &&
-           current_config.num_cim_arrays == other.current_config.num_cim_arrays &&
-           current_config.cim_frequency_mhz == other.current_config.cim_frequency_mhz &&
-           current_config.spm_size_kb == other.current_config.spm_size_kb &&
+           current_config.num_cim_dies == other.current_config.num_cim_dies &&
+           current_config.cim_frequency == other.current_config.cim_frequency &&
+           current_config.spm_size_per_die == other.current_config.spm_size_per_die &&
            float_equal(workload.compute_intensity, other.workload.compute_intensity) &&
            float_equal(workload.memory_intensity, other.workload.memory_intensity);
 }

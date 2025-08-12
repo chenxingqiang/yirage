@@ -19,6 +19,10 @@
 #include "yirage/layout.h"
 #include "yirage/utils/hash_utils.h"
 #include <cassert>
+
+#ifdef ENABLE_YICA
+#include "yirage/kernel/yica_operators.h"
+#endif
 #include <iostream>
 
 namespace yirage {
@@ -64,8 +68,14 @@ KNOperator *Graph::create_matmul_op(DTensor const &A, DTensor const &B) {
     return nullptr;
   }
 
+#ifdef ENABLE_YICA
+  // 如果启用 YICA，优先使用 YICA 版本的 MatMul
+  KNYICAMatMulOp *yica_op = new KNYICAMatMulOp(this, A, B);
+  return yica_op;
+#else
   KNMatmulOp *op = new KNMatmulOp(this, A, B);
   return op;
+#endif
 }
 
 KNMatmulOp::KNMatmulOp(Graph *_kgraph, DTensor const &A, DTensor const &B)

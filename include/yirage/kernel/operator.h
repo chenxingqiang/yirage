@@ -27,16 +27,16 @@ class Graph;
 
 class KNOperator {
 public:
-  KNOperator(Graph *graph, yirage::type::KNOperatorType _type);
+  KNOperator(Graph *graph, type::KNOperatorType _type);
   KNOperator(Graph *graph,
-             yirage::type::KNOperatorType _type,
+             type::KNOperatorType _type,
              DTensor const &input1);
   KNOperator(Graph *graph,
-             yirage::type::KNOperatorType _type,
+             type::KNOperatorType _type,
              DTensor const &input1,
              DTensor const &input2);
   KNOperator(Graph *graph,
-             yirage::type::KNOperatorType _type,
+             type::KNOperatorType _type,
              std::vector<DTensor> const &inputs);
   int get_input_dtensors(DTensor **inputs);
   int get_output_dtensors(DTensor **inputs);
@@ -65,8 +65,8 @@ public:
             yirage::layout::DmemLayout layout,
             int3 input_map = {-1, -1, -1});
   ~KNInputOp();
-  bool profile(ProfileResult &profile);
-  bool fingerprint(void);
+  bool profile(ProfileResult &profile) override;
+  bool fingerprint(void) override;
 
   operator json() const override;
 
@@ -82,8 +82,8 @@ public:
              std::vector<size_t> const &strides,
              int3 output_map = {-1, -1, -1});
   ~KNOutputOp();
-  bool profile(ProfileResult &profile);
-  bool fingerprint(void);
+  bool profile(ProfileResult &profile) override;
+  bool fingerprint(void) override;
 
   operator json() const override;
 

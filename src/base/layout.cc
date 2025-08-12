@@ -14,6 +14,7 @@
  */
 
 #include "yirage/layout.h"
+#include <cassert>
 
 namespace yirage {
 namespace layout {

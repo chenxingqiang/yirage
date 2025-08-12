@@ -119,7 +119,7 @@ public:
         result.generated_files = {kernel_file, header_file, makefile};
         result.success = true;
         result.compilation_commands = "make";
-        result.generation_log = "成功生成CPU版本的YICA代码，无CUDA依赖";
+        result.generation_log = "成功生成CPU版本的YICA代码，无加速硬件依赖";
         
         return result;
     }

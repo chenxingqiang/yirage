@@ -1,0 +1,26 @@
+numpy>=1.19.0
+torch>=1.12.0
+z3-solver>=4.8.0
+
+[:sys_platform == "linux"]
+triton>=2.0.0
+
+[all]
+yica-yirage[cuda,dev]
+
+[cuda]
+cupy>=9.0.0
+nvidia-ml-py>=11.0.0
+
+[dev]
+pytest>=6.0
+pytest-cov>=3.0
+black>=21.0
+flake8>=3.8
+mypy>=0.900
+sphinx>=4.0
+sphinx-rtd-theme>=1.0
+pre-commit>=2.15
+
+[rocm]
+torch-rocm>=1.12.0

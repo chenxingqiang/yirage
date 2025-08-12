@@ -18,24 +18,58 @@ include_directories("include")
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
+# YICA Hardware Acceleration Configuration
+# Enable YICA support by default for yz-g100 hardware
+option(ENABLE_YICA "Enable YICA architecture support" ON)
+option(YICA_HARDWARE_ACCELERATION "Enable real hardware acceleration" ON) 
+option(BUILD_YICA_CYTHON_BINDINGS "Build YICA Cython bindings" ON)
+
+# YICA hardware specific configuration
+set(YICA_HARDWARE_TARGET "yz-g100" CACHE STRING "YICA hardware target")
+set(YICA_CIM_ARRAYS 4 CACHE STRING "Number of CIM arrays")
+set(YICA_SPM_SIZE "128MB" CACHE STRING "SPM memory size per die")
+
 # Include YICA support
 include(cmake/yica.cmake)
 
-# Configure YICA backend if enabled
-# configure_yica()  # Function not defined, YICA support controlled by ENABLE_YICA option
+# Configure YICA backend
+if(ENABLE_YICA)
+    message(STATUS "🎯 YICA Hardware Acceleration: ENABLED")
+    message(STATUS "  Target Hardware: ${YICA_HARDWARE_TARGET}")
+    message(STATUS "  CIM Arrays: ${YICA_CIM_ARRAYS}")
+    message(STATUS "  SPM Size: ${YICA_SPM_SIZE}")
+    
+    # Configure YICA-specific compilation flags
+    add_definitions(-DYIRAGE_ENABLE_YICA_HARDWARE)
+    add_definitions(-DYICA_TARGET_YZ_G100)
+    add_definitions(-DYICA_CIM_ARRAYS=${YICA_CIM_ARRAYS})
+endif()
 
 #add_subdirectory(deps/cutlass)
 
 # set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86;89;90")
 #set(CUTLASS_NVCC_ARCHS "80;86")
 
-file(GLOB_RECURSE YIRAGE_SRCS
+# Collect all source files
+file(GLOB_RECURSE ALL_YIRAGE_SRCS
   src/*.cc
 )
 
 file(GLOB_RECURSE YIRAGE_CUDA_SRCS
   src/*.cu
 )
+
+# Filter out YICA-specific files if YICA is not enabled
+if(NOT ENABLE_YICA)
+  list(FILTER ALL_YIRAGE_SRCS EXCLUDE REGEX ".*yica_.*\\.cc$")
+  list(FILTER ALL_YIRAGE_SRCS EXCLUDE REGEX ".*search/yica/.*\\.cc$")
+  list(FILTER ALL_YIRAGE_SRCS EXCLUDE REGEX ".*yica/.*\\.cc$")
+  list(FILTER YIRAGE_CUDA_SRCS EXCLUDE REGEX ".*yica_.*\\.cu$")
+  list(FILTER YIRAGE_CUDA_SRCS EXCLUDE REGEX ".*search/yica/.*\\.cu$")
+  list(FILTER YIRAGE_CUDA_SRCS EXCLUDE REGEX ".*yica/.*\\.cu$")
+endif()
+
+set(YIRAGE_SRCS ${ALL_YIRAGE_SRCS})
 
 include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag("-std=c++17" SUPPORT_CXX17)
@@ -54,10 +88,10 @@ check_cxx_compiler_flag("-std=c++17" SUPPORT_CXX17)
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   message("Build in Debug mode")
   set(CMAKE_CUDA_FLAGS "-O0 -g -Xcompiler=-fPIC ${CMAKE_CUDA_FLAGS}")
-  set(CMAKE_CXX_FLAGS "-fopenmp -O0 -g -Wall -fPIC ${CMAKE_CXX_FLAGS}")
+  set(CMAKE_CXX_FLAGS "-O0 -g -Wall -fPIC ${CMAKE_CXX_FLAGS}")
 else()
   set(CMAKE_CUDA_FLAGS "-O2 -Xcompiler=-fPIC ${CMAKE_CUDA_FLAGS}")
-  set(CMAKE_CXX_FLAGS "-fopenmp -O2 -Wall -fPIC ${CMAKE_CXX_FLAGS}")
+  set(CMAKE_CXX_FLAGS "-O2 -Wall -fPIC ${CMAKE_CXX_FLAGS}")
 endif()
 
 #set CUDA
@@ -171,6 +205,8 @@ install(DIRECTORY ${PROJECT_SOURCE_DIR}/include
 
 install(FILES ${ABSTRACT_SUBEXPR_LIBRARIES} 
     DESTINATION lib)
+
+# YICA test programs will be added in Phase 2
 
 if ("${BUILD_CPP_EXAMPLES}" STREQUAL "ON")
   set(CPP_EXAMPLES_DIR cpp_examples)

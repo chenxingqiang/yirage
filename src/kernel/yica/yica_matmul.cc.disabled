@@ -1,0 +1,253 @@
+/* Copyright 2023-2024 CMU
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "yirage/kernel/yica_matmul.h"
+#include "yirage/kernel/device_memory_manager.h"
+#include <iostream>
+#include <chrono>
+#include <algorithm>
+#include <cstring>
+
+namespace yirage {
+namespace kernel {
+
+YICAMatMulOp::YICAMatMulOp(Graph* graph,
+                           const DTensor& A,
+                           const DTensor& B,
+                           bool transpose_a,
+                           bool transpose_b,
+                           const YICAHardwareConfig& config)
+    : YICAKernelBase(graph, config),
+      A_(A), B_(B),
+      transpose_a_(transpose_a),
+      transpose_b_(transpose_b) {
+
+    // 计算输出维度
+    size_t M = transpose_a_ ? A_.dim[1] : A_.dim[0];
+    size_t N = transpose_b_ ? B_.dim[0] : B_.dim[1];
+    size_t K = transpose_a_ ? A_.dim[0] : A_.dim[1];
+
+    // 创建输出张量
+    C_ = DTensor();
+    C_.num_dims = 2;
+    C_.dim[0] = M;
+    C_.dim[1] = N;
+    C_.data_type = A_.data_type;
+    C_.guid = DTensor::next_guid++;
+    graph_->allocate(C_);
+}
+
+YICAMatMulOp::~YICAMatMulOp() {
+    graph_->free(C_);
+}
+
+bool YICAMatMulOp::initialize() {
+    if (is_initialized_) {
+        return true;
+    }
+
+    // 计算tiling策略
+    calculate_tiling_strategy();
+
+    // 生成YIS指令序列
+    instruction_sequence_ = generate_yis_instructions();
+
+    // 计算预期性能
+    size_t total_flops = 2 * C_.dim[0] * C_.dim[1] *
+                        (transpose_a_ ? A_.dim[0] : A_.dim[1]);
+    float peak_tflops = hw_config_.num_cim_arrays * hw_config_.cim_compute_throughput_tflops;
+    execution_time_ms_ = (total_flops / 1e9) / peak_tflops;  // 理论时间
+
+    cim_utilization_ = std::min(1.0f, static_cast<float>(tiling_strategy_.num_tiles) /
+                                      hw_config_.num_cim_arrays);
+    memory_efficiency_ = tiling_strategy_.use_double_buffering ? 0.9f : 0.7f;
+
+    is_initialized_ = true;
+    return true;
+}
+
+bool YICAMatMulOp::execute() {
+    if (!is_initialized_) {
+        if (!initialize()) {
+            return false;
+        }
+    }
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    // 执行CIM矩阵乘法
+    bool success = execute_cim_matmul();
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    execution_time_ms_ = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+
+    return success;
+}
+
+void YICAMatMulOp::calculate_tiling_strategy() {
+    size_t M = C_.dim[0];
+    size_t N = C_.dim[1];
+    size_t K = transpose_a_ ? A_.dim[0] : A_.dim[1];
+
+    // SPM大小限制
+    size_t spm_size = hw_config_.spm_size_mb * 1024 * 1024;
+    size_t element_size = sizeof(float);  // 假设float32
+
+    // 计算最优tile大小
+    // 目标：最大化数据重用，最小化内存传输
+    size_t max_tile_elements = spm_size / element_size / 3;  // 需要存储A, B, C的tile
+
+    // 简单的平方根策略
+    size_t tile_size = std::sqrt(max_tile_elements);
+    tile_size = std::min(tile_size, std::min(M, std::min(N, K)));
+
+    // 对齐到向量宽度
+    tile_size = (tile_size / hw_config_.vector_width) * hw_config_.vector_width;
+    tile_size = std::max(tile_size, static_cast<size_t>(hw_config_.vector_width));
+
+    tiling_strategy_.tile_m = tile_size;
+    tiling_strategy_.tile_n = tile_size;
+    tiling_strategy_.tile_k = tile_size;
+
+    // 计算tile数量
+    size_t tiles_m = (M + tile_size - 1) / tile_size;
+    size_t tiles_n = (N + tile_size - 1) / tile_size;
+    size_t tiles_k = (K + tile_size - 1) / tile_size;
+    tiling_strategy_.num_tiles = tiles_m * tiles_n * tiles_k;
+
+    // 启用双缓冲如果有足够的SPM
+    tiling_strategy_.use_double_buffering =
+        (spm_size >= 2 * tile_size * tile_size * element_size * 3);
+}
+
+std::vector<yis::Instruction> YICAMatMulOp::generate_yis_instructions() {
+    std::vector<yis::Instruction> instructions;
+
+    // 生成tiled矩阵乘法指令
+    auto tiled_instructions = generate_tiled_mma_instructions();
+    instructions.insert(instructions.end(),
+                       tiled_instructions.begin(),
+                       tiled_instructions.end());
+
+    // 最终同步
+    yis::Instruction sync_inst;
+    sync_inst.type = yis::InstructionType::SYNC_BAR;
+    sync_inst.sync_required = true;
+    instructions.push_back(sync_inst);
+
+    return instructions;
+}
+
+std::vector<yis::Instruction> YICAMatMulOp::generate_tiled_mma_instructions() {
+    std::vector<yis::Instruction> instructions;
+
+    size_t M = C_.dim[0];
+    size_t N = C_.dim[1];
+    size_t K = transpose_a_ ? A_.dim[0] : A_.dim[1];
+
+    size_t tile_m = tiling_strategy_.tile_m;
+    size_t tile_n = tiling_strategy_.tile_n;
+    size_t tile_k = tiling_strategy_.tile_k;
+
+    int cim_id = 0;
+
+    // 三层循环tiling
+    for (size_t i = 0; i < M; i += tile_m) {
+        for (size_t j = 0; j < N; j += tile_n) {
+            for (size_t k = 0; k < K; k += tile_k) {
+                // 加载A tile到SPM
+                yis::Instruction load_a;
+                load_a.type = yis::InstructionType::ECOPY_G2S;
+                load_a.src_addr = A_.data_offset + i * K + k;
+                load_a.size = tile_m * tile_k * sizeof(float);
+                load_a.cim_array_id = cim_id;
+                instructions.push_back(load_a);
+
+                // 加载B tile到SPM
+                yis::Instruction load_b;
+                load_b.type = yis::InstructionType::ECOPY_G2S;
+                load_b.src_addr = B_.data_offset + k * N + j;
+                load_b.size = tile_k * tile_n * sizeof(float);
+                load_b.cim_array_id = cim_id;
+                instructions.push_back(load_b);
+
+                // 执行矩阵乘法
+                yis::Instruction mma;
+                mma.type = yis::InstructionType::MMA;
+                mma.cim_array_id = cim_id;
+                mma.size = tile_m * tile_n * tile_k;
+                instructions.push_back(mma);
+
+                // 存储结果（最后一个K tile时）
+                if (k + tile_k >= K) {
+                    yis::Instruction store_c;
+                    store_c.type = yis::InstructionType::ECOPY_S2G;
+                    store_c.dst_addr = C_.data_offset + i * N + j;
+                    store_c.size = tile_m * tile_n * sizeof(float);
+                    store_c.cim_array_id = cim_id;
+                    instructions.push_back(store_c);
+                }
+
+                // 轮询CIM阵列
+                cim_id = (cim_id + 1) % hw_config_.num_cim_arrays;
+            }
+        }
+    }
+
+    return instructions;
+}
+
+bool YICAMatMulOp::execute_cim_matmul() {
+    using namespace yirage::kernel;
+    DeviceMemoryManager* dmm = DeviceMemoryManager::get_instance();
+    if (dmm == nullptr) {
+        std::cerr << "YICAMatMulOp: DeviceMemoryManager not initialized" << std::endl;
+        return false;
+    }
+    char* base_ptr = dmm->data_base_ptr[dmm->gpu_id];
+    if (base_ptr == nullptr) {
+        std::cerr << "YICAMatMulOp: base_ptr is null" << std::endl;
+        return false;
+    }
+
+    size_t M = C_.dim[0];
+    size_t N = C_.dim[1];
+    size_t K = transpose_a_ ? A_.dim[0] : A_.dim[1];
+
+    float* A_data = reinterpret_cast<float*>(base_ptr + A_.data_offset);
+    float* B_data = reinterpret_cast<float*>(base_ptr + B_.data_offset);
+    float* C_data = reinterpret_cast<float*>(base_ptr + C_.data_offset);
+
+    // 初始化C
+    std::memset(C_data, 0, C_.data_size());
+
+    // 参考CPU实现，保持与 Yirage 模型一致（行主序）
+    for (size_t i = 0; i < M; i++) {
+        for (size_t j = 0; j < N; j++) {
+            float sum = 0.0f;
+            for (size_t k = 0; k < K; k++) {
+                float a_val = transpose_a_ ? A_data[k * M + i] : A_data[i * K + k];
+                float b_val = transpose_b_ ? B_data[j * K + k] : B_data[k * N + j];
+                sum += a_val * b_val;
+            }
+            C_data[i * N + j] = alpha_ * sum + beta_ * C_data[i * N + j];
+        }
+    }
+
+    return true;
+}
+
+} // namespace kernel
+} // namespace yirage

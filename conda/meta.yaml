@@ -1,0 +1,119 @@
+{% set name = "yica-yirage" %}
+{% set version = "1.0.6" %}
+
+# Version is dynamically read from pyproject.toml during build
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: ..  # Relative to this meta.yaml file
+  git_url: https://github.com/yica-ai/yica-yirage.git
+  git_rev: main
+
+build:
+  number: 0
+  skip: true  # [win]
+  script: bash build.sh
+  entry_points:
+    - yica-yirage=yirage.cli:main
+
+requirements:
+  build:
+    - {{ compiler('cxx') }}
+    - cmake>=3.24
+    - make
+    - python>=3.8
+    - setuptools
+    - pip
+    - pybind11>=2.10.0
+    - cython>=0.29.32
+    - numpy
+    - z3-solver>=4.8.0
+    - {{ cdt('libgomp') }}  # [linux]
+    - {{ cdt('libgcc-ng') }}  # [linux]
+    - {{ cdt('libstdcxx-ng') }}  # [linux]
+    - {{ cdt('gcc_linux-64') }}  # [linux]
+    - {{ cdt('gxx_linux-64') }}  # [linux]
+    - {{ cdt('libgcc-ng') }}  # [aarch64]
+    - {{ cdt('libstdcxx-ng') }}  # [aarch64]
+    - {{ cdt('gcc_linux_aarch64') }}  # [aarch64]
+    - {{ cdt('gxx_linux_aarch64') }}  # [aarch64]
+    - {{ cdt('libgcc-ng') }}  # [ppc64le]
+    - {{ cdt('libstdcxx-ng') }}  # [ppc64le]
+    - {{ cdt('gcc_linux_ppc64le') }}  # [ppc64le]
+    - {{ cdt('gxx_linux_ppc64le') }}  # [ppc64le]
+    - {{ cdt('libgcc-ng') }}  # [x86_64]
+    - {{ cdt('libstdcxx-ng') }}  # [x86_64]
+    - {{ cdt('gcc_linux_64') }}  # [x86_64]
+    - {{ cdt('gxx_linux_64') }}  # [x86_64]
+
+  host:
+    - python>=3.8
+    - pip
+    - setuptools
+    - pybind11>=2.10.0
+    - cython>=0.29.32
+    - numpy>=2.1.0
+    - z3-solver>=4.8.0
+    - libblas
+    - libcblas
+    - liblapack
+    - openblas
+    - psutil>=5.9.0
+    - msgpack-python>=1.0.0
+
+  run:
+    - python>=3.8
+    - numpy>=2.1.0
+    - z3-solver>=4.8.0
+    - libblas
+    - libcblas
+    - liblapack
+    - openblas
+    - psutil>=5.9.0
+    - msgpack-python>=1.0.0
+    - pip:
+      - torch>=1.12.0
+      - transformers
+      - tqdm
+      - graphviz
+      - protobuf>=3.20.0
+      - flashinfer-python
+
+test:
+  imports:
+    - yirage
+  commands:
+    - python -c "import yirage; print('YICA-Yirage imported successfully')"
+    - python -c "import yirage; print(f'Version: {yirage.__version__}')"
+  requires:
+    - pip
+    - pytest>=7.0.0
+    - pytest-cov>=4.0.0
+    - pytest-xdist>=2.5.0
+
+about:
+  home: https://github.com/yica-ai/yica-yirage
+  license: MIT
+  license_family: MIT
+  summary: "YICA-Yirage: AI Computing Optimization Framework"
+  description: |
+    YICA-Yirage is an advanced AI computing optimization framework that provides
+    efficient tensor operations, kernel optimization, and hardware acceleration
+    capabilities for deep learning workloads.
+    
+    Features:
+    - Advanced tensor optimization algorithms
+    - CUDA kernel generation and optimization
+    - Hardware-aware compilation
+    - Z3-based constraint solving
+    - OpenMP parallelization support
+    - CUTLASS integration for GPU operations
+  doc_url: https://github.io/yica-yirage.readthedocs.io/
+  dev_url: https://github.com/yica-ai/yica-yirage
+
+extra:
+  recipe-maintainers:
+    - YICA-Team

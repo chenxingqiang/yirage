@@ -137,7 +137,7 @@ public:
 };
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
-    DTensor, data_type, layout, num_dims, dim, guid)
+    DTensor, data_type, layout, num_dims, guid)
 
 } // namespace kernel
 } // namespace yirage

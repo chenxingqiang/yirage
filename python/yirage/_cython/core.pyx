@@ -1516,8 +1516,8 @@ cdef class CyYICAMemoryManager:
     def get_instance():
         """获取单例实例"""
         cdef YICADeviceMemoryManager* instance = YICADeviceMemoryManager.get_instance()
-        # 创建Python包装器（需要小心处理生命周期）
-        manager = CyYICAMemoryManager.__new__(CyYICAMemoryManager)
+        # 创建Python包装器
+        cdef CyYICAMemoryManager manager = CyYICAMemoryManager.__new__(CyYICAMemoryManager)
         manager.c_manager = instance
         return manager
     

@@ -29,7 +29,9 @@
 #include "yirage/transpiler/utils.h"
 #include "yirage/type.h"
 
+#ifdef USE_CUTLASS
 #include "cutlass/gemm/collective/builders/sm90_common.inl"
+#endif
 
 namespace yirage {
 namespace transpiler {
@@ -997,7 +999,9 @@ CustomOPTranspileResult
       auto [output_op, output_op_meta] = sched_node.ops.back();
       assert(output_op == fusion_chain.at(op).back());
       std::string op_type_str;
-      to_json(op_type_str, op->op_type);
+      json op_type_json;
+      to_json(op_type_json, op->op_type);
+      op_type_str = op_type_json.get<std::string>();
       code.e("{");
       code.e("// OP type: $", op_type_str);
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-增强版YIRAGE安装脚本
-处理OpenMP、CUTLASS等硬性依赖
+Enhanced YIRAGE Installation Script
+Handles OpenMP, CUTLASS and other hard dependencies
 """
 
 from setuptools import setup, find_packages, Extension
@@ -12,17 +12,50 @@ import os
 import sys
 import platform
 
-# 读取版本信息
+# Read version information - dynamically from version file
 def get_version():
     version_file = os.path.join('python', 'yirage', 'version.py')
-    with open(version_file, 'r') as f:
-        content = f.read()
-        for line in content.split('\n'):
-            if line.startswith('__version__'):
-                return line.split('=')[1].strip().strip('"').strip("'")
-    return "1.0.1"
+    
+    # Method 1: Directly execute version file to get version
+    try:
+        version_globals = {}
+        with open(version_file, 'r') as f:
+            exec(f.read(), version_globals)
+        
+        if '__version__' in version_globals:
+            version = version_globals['__version__']
+            print(f"✅ Dynamically read version: {version} (source: {version_file})")
+            return version
+    except Exception as e:
+        print(f"⚠️  Method 1 failed: {e}")
+    
+    # Method 2: Text parsing (backup)
+    try:
+        with open(version_file, 'r') as f:
+            content = f.read()
+            import re
+            match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+            if match:
+                version = match.group(1)
+                print(f"✅ Parsed version: {version} (source: {version_file})")
+                return version
+    except Exception as e:
+        print(f"⚠️  Method 2 failed: {e}")
+    
+    # Method 3: Try import (if in correct path)
+    try:
+        import sys
+        sys.path.insert(0, 'python')
+        from yirage.version import __version__
+        print(f"✅ Imported version: {__version__} (source: module import)")
+        return __version__
+    except Exception as e:
+        print(f"⚠️  Method 3 failed: {e}")
+    
+    print(f"❌ Unable to get version information, using default value")
+    return "dev-unknown"
 
-# 检测编译环境
+# Detect compilation environment
 def detect_compile_env():
     env = {
         'has_cuda': False,
@@ -34,39 +67,39 @@ def detect_compile_env():
         'is_linux': platform.system() == 'Linux',
     }
     
-    # 检查CUDA
+    # Check CUDA
     if os.path.exists('/usr/local/cuda') or os.environ.get('CUDA_HOME'):
         env['has_cuda'] = True
-        print("✅ 检测到CUDA环境")
+        print("✅ Detected CUDA environment")
     
-    # 检查依赖路径
+    # Check dependency paths
     deps_dir = os.path.join(os.getcwd(), 'deps')
     
     if os.path.exists(os.path.join(deps_dir, 'cutlass', 'include')):
         env['cutlass_path'] = os.path.join(deps_dir, 'cutlass')
-        print(f"✅ 找到CUTLASS: {env['cutlass_path']}")
+        print(f"✅ Found CUTLASS: {env['cutlass_path']}")
     
     if os.path.exists(os.path.join(deps_dir, 'json', 'include')):
         env['json_path'] = os.path.join(deps_dir, 'json')
-        print(f"✅ 找到nlohmann/json: {env['json_path']}")
+        print(f"✅ Found nlohmann/json: {env['json_path']}")
     
-    # 优先检查pip安装的Z3
+    # Prioritize pip-installed Z3
     try:
         import z3
-        print(f"✅ 找到Z3 (pip): {z3.get_version_string()}")
+        print(f"✅ Found Z3 (pip): {z3.get_version_string()}")
         env['z3_pip'] = True
     except ImportError:
         env['z3_pip'] = False
-        # 然后检查本地编译的Z3
+        # Then check locally compiled Z3
         if os.path.exists(os.path.join(deps_dir, 'z3', 'install')):
             env['z3_path'] = os.path.join(deps_dir, 'z3', 'install')
-            print(f"✅ 找到Z3 (源码): {env['z3_path']}")
+            print(f"✅ Found Z3 (source): {env['z3_path']}")
         else:
-            print("⚠️  未找到Z3，建议运行: pip install z3-solver")
+            print("⚠️  Z3 not found, recommend running: pip install z3-solver")
     
-    # 检查OpenMP
+    # Check OpenMP
     if env['is_macos']:
-        # macOS使用libomp
+        # macOS uses libomp
         try:
             import subprocess
             result = subprocess.run(['brew', '--prefix', 'libomp'], 
@@ -74,28 +107,29 @@ def detect_compile_env():
             if result.returncode == 0:
                 env['has_openmp'] = True
                 env['openmp_path'] = result.stdout.strip()
-                print(f"✅ 找到OpenMP (libomp): {env['openmp_path']}")
+                print(f"✅ Found OpenMP (libomp): {env['openmp_path']}")
         except:
             pass
     else:
-        # Linux通常有系统OpenMP
+        # Linux usually has system OpenMP
         env['has_openmp'] = True
-        print("✅ 假设Linux系统有OpenMP支持")
+        print("✅ Assuming Linux system has OpenMP support")
     
     return env
 
-# 构建扩展模块
+# Build extension modules
 def create_extensions(env):
     extensions = []
     
-    # 基础包含路径
+    # Basic include paths
     include_dirs = [
         'include',
         'python',
         pybind11.get_include(),
+        '/opt/homebrew/include',  # Add homebrew include path for Z3
     ]
     
-    # 添加依赖包含路径
+    # Add dependency include paths
     if env['cutlass_path']:
         include_dirs.append(os.path.join(env['cutlass_path'], 'include'))
     
@@ -107,13 +141,13 @@ def create_extensions(env):
             os.path.join(env['z3_path'], 'include'),
         ])
     
-    # 编译标志
+    # Compilation flags
     compile_args = ['-std=c++17', '-O3']
     link_args = []
     libraries = []
     library_dirs = []
     
-    # OpenMP支持
+    # OpenMP support
     if env['has_openmp']:
         if env['is_macos'] and 'openmp_path' in env:
             # macOS libomp
@@ -126,20 +160,20 @@ def create_extensions(env):
             compile_args.append('-fopenmp')
             link_args.append('-fopenmp')
     
-    # Z3库 (优先使用pip版本，无需手动链接)
+    # Z3 library (prioritize pip version, no manual linking needed)
     if env.get('z3_pip'):
-        # pip安装的Z3会自动处理链接
-        print("✅ 使用pip安装的Z3，无需手动链接")
+        # pip-installed Z3 handles linking automatically
+        print("✅ Using pip-installed Z3, no manual linking needed")
     elif env.get('z3_path'):
-        # 使用本地编译的Z3
+        # Use locally compiled Z3
         library_dirs.append(os.path.join(env['z3_path'], 'lib'))
         libraries.append('z3')
         include_dirs.append(os.path.join(env['z3_path'], 'include'))
-        print("✅ 使用本地编译的Z3")
+        print("✅ Using locally compiled Z3")
     else:
-        print("⚠️  未找到Z3，某些功能可能不可用")
+        print("⚠️  Z3 not found, some features may not be available")
     
-    # CUDA支持 (可选)
+    # CUDA support (optional)
     if env['has_cuda']:
         cuda_home = os.environ.get('CUDA_HOME', '/usr/local/cuda')
         include_dirs.append(os.path.join(cuda_home, 'include'))
@@ -149,16 +183,16 @@ def create_extensions(env):
     else:
         compile_args.append('-DYICA_CPU_ONLY')
     
-    # 创建核心扩展
+    # Create core extension
     try:
         core_extension = Pybind11Extension(
             "yirage._core",
             sources=[
-                # 添加关键源文件
+                # Add key source files
                 "src/base/layout.cc",
                 "src/search/config.cc",
                 "src/search/search.cc",
-                # 可以根据需要添加更多源文件
+                # Can add more source files as needed
             ],
             include_dirs=include_dirs,
             libraries=libraries,
@@ -167,50 +201,50 @@ def create_extensions(env):
             cxx_std=17,
         )
         
-        # 设置编译和链接参数
+        # Set compilation and linking parameters
         core_extension.extra_compile_args = compile_args
         core_extension.extra_link_args = link_args
         
         extensions.append(core_extension)
-        print(f"✅ 创建核心扩展模块")
+        print(f"✅ Created core extension module")
         
     except Exception as e:
-        print(f"⚠️  跳过C++扩展模块: {e}")
+        print(f"⚠️  Skipping C++ extension module: {e}")
     
     return extensions
 
-# 主安装配置
+# Main installation configuration
 def main():
-    print("🔧 检测编译环境...")
+    print("🔧 Detecting compilation environment...")
     env = detect_compile_env()
     
-    print("🔨 创建扩展模块...")
+    print("🔨 Creating extension modules...")
     extensions = create_extensions(env)
     
-    # 基础依赖
+    # Basic dependencies
     install_requires = [
         "numpy>=1.19.0",
         "z3-solver>=4.8.0",
     ]
     
-    # Z3依赖处理
+    # Z3 dependency handling
     if env.get('z3_pip'):
-        # 已经通过pip安装，无需重复添加
-        print("✅ Z3依赖已通过pip满足")
+        # Already satisfied through pip installation, no need to add again
+        print("✅ Z3 dependency already satisfied through pip")
     elif env.get('z3_path'):
-        # 有本地编译版本，无需pip版本
-        print("✅ Z3依赖通过本地编译满足")
+        # Has locally compiled version, no need for pip version
+        print("✅ Z3 dependency satisfied through local compilation")
     else:
-        # 确保有Z3依赖
-        print("📦 将通过pip安装Z3")
+        # Ensure Z3 dependency
+        print("📦 Will install Z3 through pip")
     
-    # PyTorch依赖 (可选)
+    # PyTorch dependency (optional)
     try:
         import torch
-        print(f"✅ 检测到PyTorch {torch.__version__}")
+        print(f"✅ Detected PyTorch {torch.__version__}")
     except ImportError:
         install_requires.append("torch>=1.12.0")
-        print("📦 将安装PyTorch")
+        print("📦 Will install PyTorch")
     
     setup(
         name="yica-yirage",
@@ -221,15 +255,15 @@ def main():
         author="YICA Team",
         author_email="contact@yica.ai",
         
-        # 包配置
+        # Package configuration
         package_dir={"": "python"},
         packages=find_packages(where="python"),
         
-        # C++扩展
+        # C++ extensions
         ext_modules=extensions,
         cmdclass={"build_ext": build_ext},
         
-        # 依赖
+        # Dependencies
         install_requires=install_requires,
         
         extras_require={
@@ -253,7 +287,7 @@ def main():
         python_requires=">=3.8",
         zip_safe=False,
         
-        # 分类
+        # Classifiers
         classifiers=[
             "Development Status :: 4 - Beta",
             "Intended Audience :: Developers",

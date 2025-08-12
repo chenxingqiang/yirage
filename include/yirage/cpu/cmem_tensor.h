@@ -15,7 +15,17 @@
 
 #pragma once
 
+#ifdef WITH_CUTLASS
 #include "cutlass/cutlass.h"
+#else
+// Basic CUTLASS compatibility defines
+#ifndef CUTLASS_HOST_DEVICE
+#define CUTLASS_HOST_DEVICE
+#endif
+#ifndef CUTLASS_DEVICE
+#define CUTLASS_DEVICE
+#endif
+#endif
 #include "yirage/config.h"
 #include "yirage/layout.h"
 #include "yirage/type.h"
