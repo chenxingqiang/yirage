@@ -18,7 +18,9 @@
 #include "yirage/kernel/operator.h"
 #include "yirage/transpiler/transpiler.h"
 #include "yirage/transpiler/structs.h"
+#include "yirage/transpiler/error_types.h"
 #include "yirage/utils/json_utils.h"
+#include "yirage/layout.h"
 
 #include <algorithm>
 #include <chrono>
@@ -30,6 +32,10 @@
 #include <iostream>
 #include <set>
 #include <memory>
+#include <string>
+#include <vector>
+#include <map>
+#include <limits>
 
 namespace yirage {
 namespace yica {
@@ -52,6 +58,7 @@ YICABackend::YICABackend(const YICAConfig& config)
     cim_manager_ = std::make_unique<CIMResourceManager>(config_);
     spm_manager_ = std::make_unique<SPMMemoryManager>(config_);
     graph_optimizer_ = std::make_unique<YICAOptimizer>(config_);
+    rl_optimizer_ = std::make_unique<YICAReinforcementLearningOptimizer>(config_);
     
         // 初始化优化策略
     initialize_optimization_passes();
@@ -81,10 +88,10 @@ transpiler::TranspileResult YICABackend::transpile(kernel::Graph const* graph) {
         result.buf_size = optimization_result.memory_footprint;
         
         // 4. 设置成功标志
-        result.error_type = transpiler::TranspileErrorType::SUCCESS;
+        result.error_type = transpiler::CUDA_T_SUCCESS;
         
     } catch (const std::exception& e) {
-        result.error_type = transpiler::TranspileErrorType::INVALID_GRAPH;
+        result.error_type = transpiler::CUDA_T_UNKOWN_ERRORS;
         result.code = "// YICA transpilation failed: " + std::string(e.what());
     }
     
@@ -125,6 +132,7 @@ YICABackend::YICAOptimizationResult YICABackend::optimize_for_yica(kernel::Graph
     // 6. 估算性能指标
     result.estimated_speedup = estimate_yica_speedup(performance_analysis);
     result.memory_footprint = result.spm_memory_plan.total_spm_usage;
+    result.used_rl_optimization = false;  // 传统优化不使用 RL
     
     result.optimization_log.push_back("YICA optimization completed successfully");
     
@@ -2581,6 +2589,95 @@ void YICABackend::optimize_tensor_broadcast(kernel::DTensor* tensor, const std::
 
 void YICABackend::mark_for_parallel_execution(kernel::KNOperator* op, const std::vector<size_t>& parallel_group) {
     // 占位符实现
+}
+
+// ============================================================================
+// 强化学习优化接口实现
+// ============================================================================
+
+YICABackend::YICAOptimizationResult YICABackend::optimize_with_reinforcement_learning(kernel::Graph const* graph) {
+    if (!graph || !rl_optimizer_) {
+        return optimize_for_yica(graph);  // 回退到传统优化
+    }
+    
+    YICAOptimizationResult result;
+    
+    try {
+        // 1. 使用强化学习优化图结构
+        kernel::Graph rl_optimized_graph = rl_optimizer_->optimize_graph_with_rl(*graph);
+        result.optimization_log.push_back("RL optimization completed");
+        
+        // 2. 应用传统 YICA 优化作为后处理
+        auto traditional_result = optimize_for_yica(&rl_optimized_graph);
+        
+        // 3. 合并结果
+        result.yis_kernel_code = traditional_result.yis_kernel_code;
+        result.triton_kernel_code = traditional_result.triton_kernel_code;
+        result.cim_allocation = traditional_result.cim_allocation;
+        result.spm_memory_plan = traditional_result.spm_memory_plan;
+        result.memory_footprint = traditional_result.memory_footprint;
+        result.used_rl_optimization = true;
+        
+        // 4. 估算强化学习带来的额外收益
+        auto original_perf = analyze_performance(graph);
+        auto rl_perf = analyze_performance(&rl_optimized_graph);
+        
+        float rl_speedup = 1.0f;
+        if (original_perf.compute_intensity > 0) {
+            rl_speedup = rl_perf.compute_intensity / original_perf.compute_intensity;
+        }
+        
+        result.estimated_speedup = traditional_result.estimated_speedup * rl_speedup;
+        
+        // 5. 合并优化日志
+        for (const auto& log : traditional_result.optimization_log) {
+            result.optimization_log.push_back(log);
+        }
+        result.optimization_log.push_back("RL enhancement factor: " + std::to_string(rl_speedup));
+        
+    } catch (const std::exception& e) {
+        result.optimization_log.push_back("RL optimization failed: " + std::string(e.what()));
+        result.optimization_log.push_back("Falling back to traditional optimization");
+        return optimize_for_yica(graph);
+    }
+    
+    return result;
+}
+
+void YICABackend::train_rl_optimizer(const std::vector<kernel::Graph>& training_graphs, size_t episodes) {
+    if (!rl_optimizer_ || training_graphs.empty()) {
+        throw std::invalid_argument("RL optimizer not initialized or no training data provided");
+    }
+    
+    try {
+        rl_optimizer_->train(training_graphs, episodes);
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Failed to train RL optimizer: " + std::string(e.what()));
+    }
+}
+
+void YICABackend::save_rl_model(const std::string& path) {
+    if (!rl_optimizer_) {
+        throw std::runtime_error("RL optimizer not initialized");
+    }
+    
+    try {
+        rl_optimizer_->save_model(path);
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Failed to save RL model: " + std::string(e.what()));
+    }
+}
+
+void YICABackend::load_rl_model(const std::string& path) {
+    if (!rl_optimizer_) {
+        throw std::runtime_error("RL optimizer not initialized");
+    }
+    
+    try {
+        rl_optimizer_->load_model(path);
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Failed to load RL model: " + std::string(e.what()));
+    }
 }
 
 } // namespace yica

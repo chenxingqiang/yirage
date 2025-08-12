@@ -33,6 +33,7 @@ struct OptimizationRecommendation {
 class ComputeIntensityAnalyzer;
 class MemoryAccessAnalyzer; 
 class CIMUtilizationAnalyzer;
+class SimpleRLOptimizer;
 
 // YICA 专用后端实现
 class YICABackend {
@@ -368,38 +369,8 @@ private:
     // 核心 RL 组件
     YICAConfig config_;
     
-    // RL 策略网络参数
-    std::vector<std::vector<float>> policy_weights_;
-    std::vector<std::vector<float>> value_weights_;
-    
-    // 经验回放缓冲区
-    struct Experience {
-        RLState state;
-        RLAction action;
-        float reward;
-        RLState next_state;
-        bool done;
-    };
-    std::vector<Experience> replay_buffer_;
-    
-    // RL 核心方法
-    RLState extract_state_features(const kernel::Graph& graph);
-    std::vector<RLAction> generate_possible_actions(const kernel::Graph& graph, const RLState& state);
-    RLAction select_action(const RLState& state, const std::vector<RLAction>& possible_actions, bool explore);
-    RLReward calculate_reward(const kernel::Graph& original_graph, const kernel::Graph& optimized_graph);
-    void update_policy(const Experience& experience);
-    
-    // 辅助方法
-    kernel::Graph apply_action(const kernel::Graph& graph, const RLAction& action);
-    float predict_action_value(const RLState& state, const RLAction& action);
-    void optimize_model();
-    
-    // 超参数
-    float learning_rate_;
-    float discount_factor_;
-    float exploration_rate_;
-    size_t batch_size_;
-    size_t replay_buffer_capacity_;
+    // 使用简化实现的智能指针
+    std::unique_ptr<SimpleRLOptimizer> simple_impl_;
 };
 
 } // namespace yica
